@@ -1,8 +1,11 @@
 [project]
 name = "cygcd"
-version = "0.2.0"
+version = "0.1.1"
 description = "Python wrapper for macOS Grand Central Dispatch (GCD)"
 readme = "README.md"
+authors = [
+    { name = "Shakeeb Alireza", email = "me@example.org" }
+]
 license = {text = "MIT"}
 requires-python = ">=3.9"
 keywords = ["gcd", "grand-central-dispatch", "macos", "concurrency", "async", "dispatch"]
@@ -21,10 +24,18 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: System :: Operating System Kernels :: BSD",
 ]
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "mypy>=1.19.1",
+    "pytest>=8.4.2",
+    "ruff>=0.14.10",
+    "twine>=6.2.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/pybind/cygcd"
-Documentation = "https://github.com/pybind/cygcd#readme"
 Repository = "https://github.com/pybind/cygcd"
 Issues = "https://github.com/pybind/cygcd/issues"
 
@@ -34,17 +45,11 @@ build-backend = "scikit_build_core.build"
 
 [tool.scikit-build]
 wheel.packages = ["src/cygcd"]
+wheel.exclude = ["*.pyx"]
+sdist.exclude = ["headers/", "examples/c/"]
 
 [tool.ruff]
 line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "W"]
-
-[dependency-groups]
-dev = [
-    "mypy>=1.19.1",
-    "pytest>=8.4.2",
-    "ruff>=0.14.10",
-    "twine>=6.2.0",
-]

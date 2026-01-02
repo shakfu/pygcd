@@ -1,21 +1,18 @@
 
 
-.PHONY: all sync build rebuild test clean distclean wheel sdist help \
-		format lint typecheck
+.PHONY: all sync build test clean distclean wheel sdist help \
+		format lint typecheck check publish publish-test release
 
 # Default target
-all: build
+all: sync
 
 # Sync environment (initial setup, installs dependencies + package)
 sync:
-	@uv sync
-
-# Build/rebuild the extension after code changes
-build:
 	@uv sync --reinstall-package cygcd
 
-# Alias for build
-rebuild: build
+# Build/rebuild the extension after code changes
+build: distclean
+	@uv build
 
 # Run tests
 test:
@@ -34,9 +31,30 @@ typecheck:
 wheel:
 	@uv build --wheel
 
+release:
+	@uv build --sdist
+	@uv build --wheel --python 3.9
+	@uv build --wheel --python 3.10
+	@uv build --wheel --python 3.11
+	@uv build --wheel --python 3.12
+	@uv build --wheel --python 3.13
+	@uv build --wheel --python 3.14
+
 # Build source distribution
 sdist:
 	@uv build --sdist
+
+# Check distributions with twine
+check:
+	@uv run twine check dist/*
+
+# Publish to PyPI
+publish:
+	@uv run twine upload dist/*
+
+# Publish to PyPI Test
+publish-test:
+	@uv run twine upload --repository testpypi dist/*
 
 # Clean build artifacts
 clean:
@@ -56,16 +74,19 @@ distclean: clean
 # Show help
 help:
 	@echo "Available targets:"
-	@echo "  all       - Build/rebuild the extension (default)"
-	@echo "  sync      - Sync environment (initial setup)"
-	@echo "  build     - Rebuild extension after code changes"
-	@echo "  rebuild   - Alias for build"
-	@echo "  test      - Run tests"
-	@echo "  format    - Run ruff format"
-	@echo "  lint      - Run ruff check --fix"
-	@echo "  typecheck - Run mypy check"
-	@echo "  wheel     - Build wheel distribution"
-	@echo "  sdist     - Build source distribution"
-	@echo "  clean     - Remove build artifacts"
-	@echo "  distclean - Remove all generated files"
-	@echo "  help      - Show this help message"
+	@echo "  all          - Build/rebuild the extension (default)"
+	@echo "  sync         - Sync environment (initial setup)"
+	@echo "  build        - Rebuild extension after code changes"
+	@echo "  rebuild      - Alias for build"
+	@echo "  test         - Run tests"
+	@echo "  format       - Run ruff format"
+	@echo "  lint         - Run ruff check --fix"
+	@echo "  typecheck    - Run mypy check"
+	@echo "  wheel        - Build wheel distribution"
+	@echo "  sdist        - Build source distribution"
+	@echo "  check        - Check distributions with twine"
+	@echo "  publish      - Upload to PyPI"
+	@echo "  publish-test - Upload to PyPI Test"
+	@echo "  clean        - Remove build artifacts"
+	@echo "  distclean    - Remove all generated files"
+	@echo "  help         - Show this help message"
