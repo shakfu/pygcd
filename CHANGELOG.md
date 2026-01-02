@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `barrier_sync(func)` - Barrier for concurrent queues (sync)
   - `after(delay, func)` - Delayed task execution
   - `global_queue(priority)` - Access to system global queues
+  - `main_queue()` - Access to main thread queue
+  - `suspend()` / `resume()` - Queue execution control
   - `label` property - Queue label for debugging
 
 - `Group` - Track completion of multiple tasks
@@ -34,10 +36,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `Once` - Thread-safe one-time execution
 
+- `Timer` - Dispatch source timer
+  - `start()` - Start the timer
+  - `cancel()` - Cancel the timer
+  - `set_timer(interval, ...)` - Reconfigure timer parameters
+  - `is_cancelled` property - Check cancellation status
+  - Supports repeating and one-shot timers
+  - Configurable leeway for power optimization
+
 #### Functions
 
 - `apply(iterations, func, queue)` - Parallel for loop
-- `time_from_now(seconds)` - Create dispatch time values
+- `time_from_now(seconds)` - Create dispatch time (monotonic clock)
+- `walltime(timestamp, delta_seconds)` - Create dispatch time (wall clock)
 
 #### Constants
 

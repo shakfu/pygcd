@@ -4,38 +4,39 @@ Prioritized plan for wrapping remaining Grand Central Dispatch APIs.
 
 ## Current Coverage
 
-- [x] Queues (create, global, label)
+- [x] Queues (create, global, main, label, suspend/resume)
 - [x] Execution (async, sync, barrier, after, apply)
 - [x] Groups (create, async, wait, notify, enter/leave)
 - [x] Semaphores (create, wait, signal)
 - [x] Once
-- [x] Time (dispatch_time)
+- [x] Time (dispatch_time, dispatch_walltime)
+- [x] Timer (dispatch source)
 
 ---
 
-## Phase 1: High Priority
+## Phase 1: High Priority - COMPLETED
 
 Core functionality that unlocks common use cases.
 
-### 1.1 Dispatch Sources - Timers
+### 1.1 Dispatch Sources - Timers - DONE
 
 Event-driven timers are one of the most useful GCD features.
 
 ```python
-# Target API
-timer = pygcd.Timer(interval=1.0, queue=q, handler=on_tick)
+# Implemented API
+timer = pygcd.Timer(interval=1.0, handler=on_tick, queue=q)
 timer.start()
 timer.cancel()
 ```
 
-Functions to wrap:
-- [ ] `dispatch_source_create` (with `DISPATCH_SOURCE_TYPE_TIMER`)
-- [ ] `dispatch_source_set_timer`
-- [ ] `dispatch_source_set_event_handler_f`
-- [ ] `dispatch_source_cancel`
-- [ ] `dispatch_resume` (sources start suspended)
+Functions wrapped:
+- [x] `dispatch_source_create` (with `DISPATCH_SOURCE_TYPE_TIMER`)
+- [x] `dispatch_source_set_timer`
+- [x] `dispatch_source_set_event_handler_f`
+- [x] `dispatch_source_cancel`
+- [x] `dispatch_resume` (sources start suspended)
 
-### 1.2 Queue Suspend/Resume
+### 1.2 Queue Suspend/Resume - DONE
 
 Control queue execution for resource management.
 
@@ -45,11 +46,11 @@ q.suspend()
 q.resume()
 ```
 
-Functions to wrap:
-- [ ] `dispatch_suspend`
-- [ ] `dispatch_resume`
+Functions wrapped:
+- [x] `dispatch_suspend`
+- [x] `dispatch_resume`
 
-### 1.3 Main Queue Access
+### 1.3 Main Queue Access - DONE
 
 Required for GUI applications and main-thread callbacks.
 
@@ -58,22 +59,21 @@ main = pygcd.Queue.main_queue()
 main.run_async(update_ui)
 ```
 
-Functions to wrap:
-- [ ] `dispatch_get_main_queue`
+Functions wrapped:
+- [x] `dispatch_get_main_queue`
 
 Note: `dispatch_main()` conflicts with Python's event loop - document alternatives.
 
-### 1.4 Wall Clock Time
+### 1.4 Wall Clock Time - DONE
 
 Schedule tasks at absolute times.
 
 ```python
-midnight = pygcd.walltime_from_datetime(dt)
-q.after(midnight, task)
+t = pygcd.walltime(timestamp=time.time(), delta_seconds=60)
 ```
 
-Functions to wrap:
-- [ ] `dispatch_walltime`
+Functions wrapped:
+- [x] `dispatch_walltime`
 
 ---
 

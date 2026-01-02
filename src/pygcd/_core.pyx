@@ -57,6 +57,13 @@ QOS_CLASS_BACKGROUND = _QOS_CLASS_BACKGROUND
 QOS_CLASS_UNSPECIFIED = _QOS_CLASS_UNSPECIFIED
 
 
+cdef extern from "time.h" nogil:
+    ctypedef long time_t
+    struct timespec:
+        time_t tv_sec
+        long tv_nsec
+
+
 cdef extern from "dispatch/dispatch.h" nogil:
     # Opaque types
     ctypedef struct dispatch_queue_s:
@@ -75,6 +82,14 @@ cdef extern from "dispatch/dispatch.h" nogil:
         pass
     ctypedef dispatch_queue_attr_s* dispatch_queue_attr_t
 
+    ctypedef struct dispatch_source_s:
+        pass
+    ctypedef dispatch_source_s* dispatch_source_t
+
+    ctypedef struct dispatch_source_type_s:
+        pass
+    ctypedef const dispatch_source_type_s* dispatch_source_type_t
+
     # Time type
     ctypedef uint64_t dispatch_time_t
 
@@ -87,6 +102,12 @@ cdef extern from "dispatch/dispatch.h" nogil:
     # Queue attribute constants
     dispatch_queue_attr_t _dispatch_queue_attr_concurrent "DISPATCH_GLOBAL_OBJECT(dispatch_queue_attr_t, _dispatch_queue_attr_concurrent)"
 
+    # Source type constants
+    dispatch_source_type_t _dispatch_source_type_timer "DISPATCH_SOURCE_TYPE_TIMER"
+
+    # Main queue
+    dispatch_queue_t dispatch_get_main_queue()
+
     # Queue creation and management
     dispatch_queue_t dispatch_queue_create(const char* label, dispatch_queue_attr_t attr)
     dispatch_queue_t dispatch_get_global_queue(intptr_t identifier, uintptr_t flags)
@@ -95,6 +116,10 @@ cdef extern from "dispatch/dispatch.h" nogil:
     # Reference counting
     void dispatch_retain(dispatch_queue_t obj)
     void dispatch_release(dispatch_queue_t obj)
+
+    # Suspend/Resume
+    void dispatch_suspend(dispatch_queue_t obj)
+    void dispatch_resume(dispatch_queue_t obj)
 
     # Async/sync execution with function pointers
     void dispatch_async_f(dispatch_queue_t queue, void* context, dispatch_function_t work)
@@ -132,6 +157,25 @@ cdef extern from "dispatch/dispatch.h" nogil:
 
     # Time functions
     dispatch_time_t dispatch_time(dispatch_time_t when, int64_t delta)
+    dispatch_time_t dispatch_walltime(const timespec* when, int64_t delta)
+
+    # Source functions
+    dispatch_source_t dispatch_source_create(dispatch_source_type_t type,
+                                             uintptr_t handle,
+                                             uintptr_t mask,
+                                             dispatch_queue_t queue)
+    void dispatch_source_set_event_handler_f(dispatch_source_t source,
+                                             dispatch_function_t handler)
+    void dispatch_source_set_cancel_handler_f(dispatch_source_t source,
+                                              dispatch_function_t handler)
+    void dispatch_source_cancel(dispatch_source_t source)
+    intptr_t dispatch_source_testcancel(dispatch_source_t source)
+    void dispatch_source_set_timer(dispatch_source_t source,
+                                   dispatch_time_t start,
+                                   uint64_t interval,
+                                   uint64_t leeway)
+    uintptr_t dispatch_source_get_data(dispatch_source_t source)
+    void dispatch_set_context(dispatch_source_t obj, void* context)
 
 
 # Trampoline function that acquires GIL and calls Python callable
@@ -160,6 +204,29 @@ cdef void _python_apply_callback(void* context, size_t iteration) noexcept with 
         func(iteration)
     except BaseException:
         PyErr_Print()
+
+
+# Trampoline for timer events - does NOT decref since timer fires repeatedly
+cdef void _python_timer_callback(void* context) noexcept with gil:
+    """Trampoline function for timer events."""
+    cdef object func
+    if context == NULL:
+        return
+    func = <object>context
+    try:
+        func()
+    except BaseException:
+        PyErr_Print()
+
+
+# Trampoline for timer cancel handler - decrefs the callback
+cdef void _python_timer_cancel_callback(void* context) noexcept with gil:
+    """Trampoline function for timer cancel - releases the callback reference."""
+    cdef object func
+    if context == NULL:
+        return
+    func = <object>context
+    Py_DECREF(func)
 
 
 cdef class Queue:
@@ -221,6 +288,26 @@ cdef class Queue:
         with nogil:
             q._queue = dispatch_get_global_queue(priority, 0)
         q._owned = False  # Global queues are not owned
+        return q
+
+    @staticmethod
+    def main_queue():
+        """
+        Get the main queue.
+
+        The main queue is a serial queue associated with the main thread.
+        Tasks submitted to the main queue execute on the main thread.
+
+        Note: In a Python application without a running CFRunLoop or NSRunLoop,
+        the main queue will not process tasks automatically. Use this primarily
+        when integrating with macOS GUI frameworks.
+
+        Returns:
+            A Queue instance wrapping the main queue.
+        """
+        cdef Queue q = Queue.__new__(Queue)
+        q._queue = dispatch_get_main_queue()
+        q._owned = False  # Main queue is not owned
         return q
 
     @property
@@ -323,6 +410,31 @@ cdef class Queue:
         cdef PyObject* ctx = <PyObject*>func
         with nogil:
             dispatch_after_f(when, self._queue, <void*>ctx, _python_callback)
+
+    def suspend(self):
+        """
+        Suspend the queue.
+
+        Suspending a queue prevents it from executing any tasks.
+        Calls to suspend must be balanced with calls to resume.
+
+        Note: Suspending a queue does not interrupt a task that is
+        currently executing.
+        """
+        cdef dispatch_queue_t q = self._queue
+        with nogil:
+            dispatch_suspend(q)
+
+    def resume(self):
+        """
+        Resume the queue.
+
+        Resumes a suspended queue, allowing it to execute tasks again.
+        Calls to resume must balance previous calls to suspend.
+        """
+        cdef dispatch_queue_t q = self._queue
+        with nogil:
+            dispatch_resume(q)
 
 
 def apply(size_t iterations, func, Queue queue=None):
@@ -577,3 +689,184 @@ def time_from_now(double seconds):
     with nogil:
         result = dispatch_time(_DISPATCH_TIME_NOW, delta_ns)
     return result
+
+
+def walltime(double timestamp=0.0, double delta_seconds=0.0):
+    """
+    Create a dispatch time based on wall clock time.
+
+    Unlike time_from_now() which uses monotonic time, walltime uses
+    the system clock and will adjust for clock changes (e.g., NTP, DST).
+
+    Args:
+        timestamp: Unix timestamp (seconds since epoch). If 0, uses current time.
+        delta_seconds: Additional seconds to add to the timestamp.
+
+    Returns:
+        A dispatch time value based on wall clock time.
+    """
+    cdef timespec ts
+    cdef timespec* ts_ptr
+    cdef int64_t delta_ns = <int64_t>(delta_seconds * NSEC_PER_SEC)
+    cdef dispatch_time_t result
+
+    if timestamp == 0.0:
+        ts_ptr = NULL  # Use current time
+    else:
+        ts.tv_sec = <time_t>timestamp
+        ts.tv_nsec = <long>((timestamp - <double>ts.tv_sec) * NSEC_PER_SEC)
+        ts_ptr = &ts
+
+    with nogil:
+        result = dispatch_walltime(ts_ptr, delta_ns)
+    return result
+
+
+cdef class Timer:
+    """
+    Dispatch timer source.
+
+    Timers fire repeatedly at specified intervals, executing a handler
+    on a target queue. Timers are created suspended and must be started
+    with start().
+    """
+    cdef dispatch_source_t _source
+    cdef object _handler
+    cdef bint _started
+    cdef bint _cancelled
+
+    def __cinit__(self):
+        self._source = NULL
+        self._handler = None
+        self._started = False
+        self._cancelled = False
+
+    def __init__(self, double interval, handler, Queue queue=None,
+                 double start_delay=0.0, double leeway=0.0, bint repeating=True):
+        """
+        Create a new timer.
+
+        Args:
+            interval: Time between firings in seconds. For one-shot timers,
+                      this is ignored (set repeating=False).
+            handler: Callable to invoke when the timer fires. Takes no arguments.
+            queue: Queue to execute handler on. If None, uses default global queue.
+            start_delay: Initial delay before first firing (seconds). Default is 0.
+            leeway: Allowed leeway for system power optimization (seconds).
+                    Default is 0 (minimal leeway).
+            repeating: If True (default), timer fires repeatedly. If False,
+                       fires once then stops.
+        """
+        if not callable(handler):
+            raise TypeError("handler must be callable")
+
+        cdef dispatch_queue_t q
+        if queue is not None:
+            q = queue._queue
+        else:
+            q = NULL  # Default global queue
+
+        # Create timer source
+        with nogil:
+            self._source = dispatch_source_create(
+                _dispatch_source_type_timer, 0, 0, q)
+
+        if self._source == NULL:
+            raise RuntimeError("Failed to create timer source")
+
+        # Configure timer
+        cdef uint64_t interval_ns
+        cdef uint64_t leeway_ns = <uint64_t>(leeway * NSEC_PER_SEC)
+        cdef dispatch_time_t start_time
+        cdef int64_t start_delta_ns = <int64_t>(start_delay * NSEC_PER_SEC)
+
+        if repeating:
+            interval_ns = <uint64_t>(interval * NSEC_PER_SEC)
+        else:
+            interval_ns = _DISPATCH_TIME_FOREVER  # One-shot
+
+        with nogil:
+            start_time = dispatch_time(_DISPATCH_TIME_NOW, start_delta_ns)
+            dispatch_source_set_timer(self._source, start_time, interval_ns, leeway_ns)
+
+        # Store handler and set up callbacks
+        self._handler = handler
+        Py_INCREF(handler)
+
+        cdef PyObject* ctx = <PyObject*>handler
+        dispatch_set_context(<dispatch_source_t>self._source, <void*>ctx)
+        dispatch_source_set_event_handler_f(self._source, _python_timer_callback)
+        dispatch_source_set_cancel_handler_f(self._source, _python_timer_cancel_callback)
+
+    def __dealloc__(self):
+        if self._source != NULL:
+            if not self._cancelled:
+                # Must cancel before release
+                dispatch_source_cancel(self._source)
+            if not self._started:
+                # Sources are created suspended, must resume before release
+                dispatch_resume(<dispatch_queue_t>self._source)
+            dispatch_release(<dispatch_queue_t>self._source)
+            self._source = NULL
+
+    def start(self):
+        """
+        Start the timer.
+
+        The timer is created suspended and must be started to begin firing.
+        """
+        if self._started:
+            return
+        if self._cancelled:
+            raise RuntimeError("Cannot start a cancelled timer")
+        self._started = True
+        with nogil:
+            dispatch_resume(<dispatch_queue_t>self._source)
+
+    def cancel(self):
+        """
+        Cancel the timer.
+
+        After cancellation, the timer will not fire again.
+        This is safe to call from any thread.
+        """
+        if self._cancelled:
+            return
+        self._cancelled = True
+        with nogil:
+            dispatch_source_cancel(self._source)
+
+    @property
+    def is_cancelled(self):
+        """Check if the timer has been cancelled."""
+        cdef intptr_t result
+        with nogil:
+            result = dispatch_source_testcancel(self._source)
+        return result != 0
+
+    def set_timer(self, double interval, double start_delay=0.0,
+                  double leeway=0.0, bint repeating=True):
+        """
+        Reconfigure the timer's interval and start time.
+
+        Can be called while the timer is running.
+
+        Args:
+            interval: Time between firings in seconds.
+            start_delay: Delay before next firing (seconds).
+            leeway: Allowed leeway for system power optimization (seconds).
+            repeating: If True, timer fires repeatedly.
+        """
+        cdef uint64_t interval_ns
+        cdef uint64_t leeway_ns = <uint64_t>(leeway * NSEC_PER_SEC)
+        cdef dispatch_time_t start_time
+        cdef int64_t start_delta_ns = <int64_t>(start_delay * NSEC_PER_SEC)
+
+        if repeating:
+            interval_ns = <uint64_t>(interval * NSEC_PER_SEC)
+        else:
+            interval_ns = _DISPATCH_TIME_FOREVER
+
+        with nogil:
+            start_time = dispatch_time(_DISPATCH_TIME_NOW, start_delta_ns)
+            dispatch_source_set_timer(self._source, start_time, interval_ns, leeway_ns)

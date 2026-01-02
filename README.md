@@ -200,6 +200,72 @@ once(init)
 once(init)
 ```
 
+### Timers
+
+Repeating or one-shot timers using dispatch sources.
+
+```python
+import pygcd
+
+count = 0
+
+def tick():
+    global count
+    count += 1
+    print(f"Tick {count}")
+
+# Create a repeating timer (fires every 0.5 seconds)
+timer = pygcd.Timer(0.5, tick)
+timer.start()
+
+# ... later
+timer.cancel()
+
+# One-shot timer (fires once after delay)
+one_shot = pygcd.Timer(1.0, lambda: print("Done!"), repeating=False)
+one_shot.start()
+```
+
+### Suspend and Resume
+
+Control queue execution.
+
+```python
+q = pygcd.Queue("work")
+
+q.suspend()
+# Queue accepts tasks but doesn't execute them
+q.run_async(lambda: print("Waiting..."))
+
+q.resume()
+# Now tasks execute
+```
+
+### Main Queue
+
+Access the main thread's queue (useful for GUI apps).
+
+```python
+main = pygcd.Queue.main_queue()
+main.run_async(update_ui)
+```
+
+### Wall Clock Time
+
+Schedule based on wall clock (adjusts for system time changes).
+
+```python
+import time
+import pygcd
+
+# Schedule 60 seconds from now using wall clock
+t = pygcd.walltime(delta_seconds=60)
+
+# Schedule at a specific Unix timestamp
+future = time.time() + 3600  # 1 hour from now
+t = pygcd.walltime(timestamp=future)
+```
+
 ## API Reference
 
 ### Queue
@@ -208,11 +274,14 @@ once(init)
 |--------|-------------|
 | `Queue(label=None, concurrent=False)` | Create a queue |
 | `Queue.global_queue(priority=0)` | Get a global queue |
+| `Queue.main_queue()` | Get the main queue |
 | `run_async(func)` | Submit for async execution |
 | `run_sync(func)` | Submit and wait for completion |
 | `barrier_async(func)` | Async barrier (concurrent queues) |
 | `barrier_sync(func)` | Sync barrier |
 | `after(delay_seconds, func)` | Delayed execution |
+| `suspend()` | Suspend queue execution |
+| `resume()` | Resume queue execution |
 | `label` | Queue's label (property) |
 
 ### Group
@@ -241,12 +310,31 @@ once(init)
 | `Once()` | Create a once token |
 | `__call__(func)` | Execute func exactly once |
 
+### Timer
+
+| Method | Description |
+|--------|-------------|
+| `Timer(interval, handler, queue=None, ...)` | Create a timer |
+| `start()` | Start the timer |
+| `cancel()` | Cancel the timer |
+| `set_timer(interval, start_delay, ...)` | Reconfigure the timer |
+| `is_cancelled` | Check if cancelled (property) |
+
+Timer constructor parameters:
+- `interval`: Seconds between firings
+- `handler`: Callable to invoke
+- `queue`: Target queue (default: global)
+- `start_delay`: Initial delay (default: 0)
+- `leeway`: Power optimization leeway (default: 0)
+- `repeating`: True for repeating, False for one-shot
+
 ### Functions
 
 | Function | Description |
 |----------|-------------|
 | `apply(iterations, func, queue=None)` | Parallel for loop |
-| `time_from_now(seconds)` | Create dispatch time |
+| `time_from_now(seconds)` | Create dispatch time (monotonic) |
+| `walltime(timestamp=0, delta_seconds=0)` | Create dispatch time (wall clock) |
 
 ### Constants
 
@@ -276,6 +364,7 @@ See the `examples/` directory for complete examples:
 - `parallel_apply.py` - Parallel loop execution
 - `producer_consumer.py` - Semaphore coordination
 - `delayed_execution.py` - Scheduled tasks
+- `timer.py` - Repeating and one-shot timers
 
 ## Notes
 

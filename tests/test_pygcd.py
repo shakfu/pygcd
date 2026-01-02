@@ -390,3 +390,223 @@ class TestTimeFromNow:
         t = pygcd.time_from_now(1.0)
         assert t > 0
         assert t != pygcd.DISPATCH_TIME_FOREVER
+
+
+class TestWalltime:
+    """Tests for walltime function."""
+
+    def test_walltime_now(self):
+        """Test walltime with current time."""
+        t = pygcd.walltime()
+        assert t > 0
+        assert t != pygcd.DISPATCH_TIME_FOREVER
+
+    def test_walltime_with_delta(self):
+        """Test walltime with delta."""
+        t1 = pygcd.walltime()
+        t2 = pygcd.walltime(delta_seconds=1.0)
+        # Walltime values decrease as time increases (relative to far future)
+        # So t2 (1 second later) should be different from t1
+        assert t1 != t2
+
+    def test_walltime_with_timestamp(self):
+        """Test walltime with specific timestamp."""
+        import time
+        now = time.time()
+        t = pygcd.walltime(timestamp=now)
+        assert t > 0
+
+
+class TestMainQueue:
+    """Tests for main queue access."""
+
+    def test_get_main_queue(self):
+        """Test getting the main queue."""
+        main = pygcd.Queue.main_queue()
+        assert main is not None
+        assert main.label is not None
+
+    def test_main_queue_is_serial(self):
+        """Test that main queue has the expected label."""
+        main = pygcd.Queue.main_queue()
+        assert "main" in main.label.lower()
+
+
+class TestSuspendResume:
+    """Tests for queue suspend/resume."""
+
+    def test_suspend_resume(self):
+        """Test suspending and resuming a queue."""
+        q = pygcd.Queue("test.suspend")
+        results = []
+
+        q.suspend()
+        q.run_async(lambda: results.append(1))
+
+        # Task should not have run yet
+        time.sleep(0.1)
+        assert results == []
+
+        q.resume()
+        q.run_sync(lambda: None)
+        assert results == [1]
+
+    def test_multiple_suspend_resume(self):
+        """Test that suspend/resume must be balanced."""
+        q = pygcd.Queue("test.multi_suspend")
+        results = []
+
+        q.suspend()
+        q.suspend()  # Two suspends
+        q.run_async(lambda: results.append(1))
+
+        q.resume()  # One resume - still suspended
+        time.sleep(0.1)
+        assert results == []
+
+        q.resume()  # Two resumes - now resumed
+        q.run_sync(lambda: None)
+        assert results == [1]
+
+
+class TestTimer:
+    """Tests for Timer class."""
+
+    def test_create_timer(self):
+        """Test creating a timer."""
+        timer = pygcd.Timer(1.0, lambda: None)
+        assert timer is not None
+        assert not timer.is_cancelled
+        timer.cancel()
+
+    def test_timer_fires(self):
+        """Test that timer fires at interval."""
+        results = []
+        lock = threading.Lock()
+
+        def handler():
+            with lock:
+                results.append(time.time())
+
+        timer = pygcd.Timer(0.1, handler)
+        start = time.time()
+        timer.start()
+
+        time.sleep(0.35)
+        timer.cancel()
+
+        # Should have fired ~3 times in 0.35s with 0.1s interval
+        assert len(results) >= 2
+        assert len(results) <= 5
+
+    def test_timer_one_shot(self):
+        """Test one-shot timer."""
+        results = []
+
+        def handler():
+            results.append(1)
+
+        timer = pygcd.Timer(0.0, handler, repeating=False, start_delay=0.05)
+        timer.start()
+
+        time.sleep(0.2)
+        timer.cancel()
+
+        # One-shot should fire exactly once
+        assert results == [1]
+
+    def test_timer_cancel(self):
+        """Test cancelling a timer."""
+        results = []
+
+        timer = pygcd.Timer(0.05, lambda: results.append(1))
+        timer.start()
+
+        time.sleep(0.12)
+        timer.cancel()
+        count_at_cancel = len(results)
+
+        time.sleep(0.1)
+        # Should not have fired more after cancel
+        assert len(results) == count_at_cancel
+        assert timer.is_cancelled
+
+    def test_timer_with_queue(self):
+        """Test timer with explicit queue."""
+        q = pygcd.Queue("test.timer_queue")
+        results = []
+        lock = threading.Lock()
+
+        def handler():
+            with lock:
+                results.append(1)
+
+        timer = pygcd.Timer(0.05, handler, queue=q)
+        timer.start()
+
+        time.sleep(0.15)
+        timer.cancel()
+
+        assert len(results) >= 2
+
+    def test_timer_start_delay(self):
+        """Test timer with start delay."""
+        results = []
+        start = time.time()
+
+        def handler():
+            results.append(time.time() - start)
+
+        timer = pygcd.Timer(0.5, handler, start_delay=0.2, repeating=False)
+        timer.start()
+
+        time.sleep(0.4)
+        timer.cancel()
+
+        assert len(results) == 1
+        assert results[0] >= 0.15  # Should have waited ~0.2s
+
+    def test_timer_leeway(self):
+        """Test timer with leeway (should not error)."""
+        timer = pygcd.Timer(0.1, lambda: None, leeway=0.05)
+        timer.start()
+        time.sleep(0.05)
+        timer.cancel()
+
+    def test_timer_set_timer(self):
+        """Test reconfiguring timer interval."""
+        results = []
+        lock = threading.Lock()
+
+        def handler():
+            with lock:
+                results.append(time.time())
+
+        # Start with fast interval
+        timer = pygcd.Timer(0.05, handler)
+        timer.start()
+
+        time.sleep(0.15)
+        count_before = len(results)
+        assert count_before >= 2  # Should have fired a few times
+
+        # Reconfigure to much slower - should fire less frequently
+        timer.set_timer(1.0, start_delay=1.0)
+        time.sleep(0.15)
+        timer.cancel()
+
+        count_after = len(results)
+        # Should not have fired many more times after reconfiguring to slow
+        assert count_after - count_before <= 1
+
+    def test_timer_raises_on_non_callable(self):
+        """Test timer raises TypeError for non-callable."""
+        with pytest.raises(TypeError):
+            pygcd.Timer(0.1, "not callable")
+
+    def test_timer_cannot_restart_cancelled(self):
+        """Test that cancelled timer cannot be restarted."""
+        timer = pygcd.Timer(0.1, lambda: None)
+        timer.cancel()
+        with pytest.raises(RuntimeError):
+            timer.start()

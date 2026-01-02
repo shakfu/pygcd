@@ -18,9 +18,11 @@ from pygcd._core import (
     Group,
     Semaphore,
     Once,
+    Timer,
     # Functions
     apply,
     time_from_now,
+    walltime,
     # Time constants
     DISPATCH_TIME_NOW,
     DISPATCH_TIME_FOREVER,
@@ -49,9 +51,11 @@ __all__ = [
     "Group",
     "Semaphore",
     "Once",
+    "Timer",
     # Functions
     "apply",
     "time_from_now",
+    "walltime",
     # Time constants
     "DISPATCH_TIME_NOW",
     "DISPATCH_TIME_FOREVER",
