@@ -12,7 +12,7 @@ sync:
 
 # Build/rebuild the extension after code changes
 build:
-	@uv sync --reinstall-package pygcd
+	@uv sync --reinstall-package cygcd
 
 # Alias for build
 rebuild: build

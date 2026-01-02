@@ -8,11 +8,11 @@ Schedule tasks to execute after a delay.
 """
 
 import time
-import pygcd
+import cygcd
 
 
 def main():
-    q = pygcd.Queue("com.example.timer")
+    q = cygcd.Queue("com.example.timer")
     start = time.time()
 
     def report(label):

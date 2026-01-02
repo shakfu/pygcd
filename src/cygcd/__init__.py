@@ -1,18 +1,18 @@
 """
-pygcd - Python wrapper for macOS Grand Central Dispatch (GCD).
+cygcd - Python wrapper for macOS Grand Central Dispatch (GCD).
 
 Provides Python bindings to Apple's GCD framework for concurrent programming.
 
 Example usage:
-    >>> import pygcd
-    >>> q = pygcd.Queue("my.queue")
+    >>> import cygcd
+    >>> q = cygcd.Queue("my.queue")
     >>> results = []
     >>> q.run_sync(lambda: results.append(1))
     >>> results
     [1]
 """
 
-from pygcd._core import (
+from cygcd._core import (
     # Classes
     Queue,
     Group,

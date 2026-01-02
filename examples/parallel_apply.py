@@ -9,7 +9,7 @@ This is useful for parallelizing loops.
 
 import threading
 import time
-import pygcd
+import cygcd
 
 results = []
 lock = threading.Lock()
@@ -28,7 +28,7 @@ def main():
     start = time.time()
 
     # Execute process_item 10 times in parallel
-    pygcd.apply(10, process_item)
+    cygcd.apply(10, process_item)
 
     elapsed = time.time() - start
     print(f"\nCompleted in {elapsed:.2f}s")

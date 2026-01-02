@@ -10,7 +10,7 @@ These are useful for building event-driven I/O without blocking.
 
 import os
 import time
-import pygcd
+import cygcd
 
 
 def main():
@@ -31,8 +31,8 @@ def main():
             print(f"Received: {msg!r}")
 
     # Create read source
-    q = pygcd.Queue("io.queue")
-    reader = pygcd.ReadSource(read_fd, on_readable, queue=q)
+    q = cygcd.Queue("io.queue")
+    reader = cygcd.ReadSource(read_fd, on_readable, queue=q)
     reader.start()
 
     # Write some messages
@@ -68,7 +68,7 @@ def main():
             print(f"Write handler fired, wrote: {msg!r}")
 
     # Create write source
-    writer = pygcd.WriteSource(write_fd, on_writable, queue=q)
+    writer = cygcd.WriteSource(write_fd, on_writable, queue=q)
     writer.start()
 
     # Let write source fire a few times
@@ -108,12 +108,12 @@ def main():
             if msg == "END":
                 done[0] = True
 
-    consumer_queue = pygcd.Queue("consumer")
-    read_source = pygcd.ReadSource(read_fd, consumer, queue=consumer_queue)
+    consumer_queue = cygcd.Queue("consumer")
+    read_source = cygcd.ReadSource(read_fd, consumer, queue=consumer_queue)
     read_source.start()
 
     # Producer sends messages
-    producer_queue = pygcd.Queue("producer")
+    producer_queue = cygcd.Queue("producer")
     messages = ["Hello", "World", "From", "GCD", "END"]
 
     def send_next(idx):

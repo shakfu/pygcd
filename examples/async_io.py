@@ -5,7 +5,7 @@ Example: Asynchronous I/O
 Demonstrates using read_async and write_async for non-blocking file operations.
 """
 
-import pygcd
+import cygcd
 import os
 import tempfile
 
@@ -24,7 +24,7 @@ def main():
 
         fd = os.open(temp_path, os.O_RDONLY)
         read_results = []
-        sem = pygcd.Semaphore(0)
+        sem = cygcd.Semaphore(0)
 
         def on_read_complete(data, error):
             if error == 0:
@@ -35,7 +35,7 @@ def main():
             sem.signal()
 
         print(f"Reading from file: {temp_path}")
-        pygcd.read_async(fd, 1024, on_read_complete)
+        cygcd.read_async(fd, 1024, on_read_complete)
 
         # Wait for completion
         sem.wait()
@@ -51,7 +51,7 @@ def main():
             write_path = f.name
 
         fd = os.open(write_path, os.O_WRONLY | os.O_TRUNC)
-        write_sem = pygcd.Semaphore(0)
+        write_sem = cygcd.Semaphore(0)
         bytes_written = [0]
 
         def on_write_complete(data, error):
@@ -65,7 +65,7 @@ def main():
 
         message = b"Written asynchronously!\n"
         print(f"Writing {len(message)} bytes to file...")
-        pygcd.write_async(fd, message, on_write_complete)
+        cygcd.write_async(fd, message, on_write_complete)
 
         # Wait for completion
         write_sem.wait()
@@ -81,16 +81,16 @@ def main():
         # --- Async I/O with Custom Queue ---
         print("\n=== Async I/O with Custom Queue ===\n")
 
-        q = pygcd.Queue("com.example.io", qos=pygcd.QOS_CLASS_UTILITY)
+        q = cygcd.Queue("com.example.io", qos=cygcd.QOS_CLASS_UTILITY)
         fd = os.open(temp_path, os.O_RDONLY)
-        queue_sem = pygcd.Semaphore(0)
+        queue_sem = cygcd.Semaphore(0)
 
         def on_read_with_queue(data, error):
             print(f"  Callback on queue (data={len(data)} bytes)")
             queue_sem.signal()
 
         print("Reading with custom queue...")
-        pygcd.read_async(fd, 100, on_read_with_queue, queue=q)
+        cygcd.read_async(fd, 100, on_read_with_queue, queue=q)
 
         queue_sem.wait()
         os.close(fd)
@@ -107,7 +107,7 @@ def main():
 
         fds = [os.open(p, os.O_RDONLY) for p in paths]
         results = {}
-        count_sem = pygcd.Semaphore(0)
+        count_sem = cygcd.Semaphore(0)
 
         def make_handler(idx):
             def handler(data, error):
@@ -117,7 +117,7 @@ def main():
 
         print("Starting 3 concurrent reads...")
         for i, fd in enumerate(fds):
-            pygcd.read_async(fd, 100, make_handler(i))
+            cygcd.read_async(fd, 100, make_handler(i))
 
         # Wait for all reads
         for _ in range(3):

@@ -6,7 +6,7 @@ Demonstrates creating queues in an inactive state, configuring them,
 and then activating them to begin processing work.
 """
 
-import pygcd
+import cygcd
 import time
 
 
@@ -15,7 +15,7 @@ def main():
 
     # Create an inactive queue
     print("Creating inactive queue...")
-    q = pygcd.Queue("com.example.inactive", inactive=True)
+    q = cygcd.Queue("com.example.inactive", inactive=True)
     print(f"Queue created, is_inactive: {q.is_inactive}")
 
     # Submit work to the inactive queue
@@ -45,7 +45,7 @@ def main():
     # --- Inactive Concurrent Queue ---
     print("\n=== Inactive Concurrent Queue ===\n")
 
-    cq = pygcd.Queue("com.example.inactive.concurrent", concurrent=True, inactive=True)
+    cq = cygcd.Queue("com.example.inactive.concurrent", concurrent=True, inactive=True)
     print(f"Concurrent queue created, is_inactive: {cq.is_inactive}")
 
     concurrent_results = []
@@ -66,14 +66,14 @@ def main():
     print("\n=== Use Case: Batch Configuration ===\n")
 
     # Create inactive queue with QOS
-    batch_q = pygcd.Queue(
+    batch_q = cygcd.Queue(
         "com.example.batch",
-        qos=pygcd.QOS_CLASS_UTILITY,
+        qos=cygcd.QOS_CLASS_UTILITY,
         inactive=True
     )
 
     # Set up target queue hierarchy while inactive
-    parent = pygcd.Queue("com.example.parent")
+    parent = cygcd.Queue("com.example.parent")
     batch_q.set_target_queue(parent)
 
     print("Configured queue with QOS and target while inactive")

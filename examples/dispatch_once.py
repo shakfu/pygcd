@@ -9,9 +9,9 @@ called from multiple threads simultaneously.
 """
 
 import time
-import pygcd
+import cygcd
 
-once = pygcd.Once()
+once = cygcd.Once()
 expensive_resource = None
 
 
@@ -28,7 +28,7 @@ def use_resource():
 
 
 def main():
-    q = pygcd.Queue.global_queue(pygcd.QOS_CLASS_DEFAULT)
+    q = cygcd.Queue.global_queue(cygcd.QOS_CLASS_DEFAULT)
 
     # Submit multiple tasks that all try to initialize
     for _ in range(3):

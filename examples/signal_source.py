@@ -9,7 +9,7 @@ instead of using traditional signal handlers.
 import os
 import signal
 import time
-import pygcd
+import cygcd
 
 
 def main():
@@ -30,8 +30,8 @@ def main():
 
     try:
         # Create a signal source on a serial queue
-        q = pygcd.Queue("signal.handler")
-        source = pygcd.SignalSource(signal.SIGUSR1, on_signal, queue=q)
+        q = cygcd.Queue("signal.handler")
+        source = cygcd.SignalSource(signal.SIGUSR1, on_signal, queue=q)
         source.start()
 
         print("Signal handler active. Sending 3 test signals...")
@@ -72,9 +72,9 @@ def main():
     old_usr2 = signal.signal(signal.SIGUSR2, signal.SIG_IGN)
 
     try:
-        q = pygcd.Queue("multi.signal")
-        src1 = pygcd.SignalSource(signal.SIGUSR1, on_usr1, queue=q)
-        src2 = pygcd.SignalSource(signal.SIGUSR2, on_usr2, queue=q)
+        q = cygcd.Queue("multi.signal")
+        src1 = cygcd.SignalSource(signal.SIGUSR1, on_usr1, queue=q)
+        src2 = cygcd.SignalSource(signal.SIGUSR2, on_usr2, queue=q)
 
         src1.start()
         src2.start()

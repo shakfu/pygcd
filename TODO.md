@@ -30,7 +30,7 @@ Event-driven timers are one of the most useful GCD features.
 
 ```python
 # Implemented API
-timer = pygcd.Timer(interval=1.0, handler=on_tick, queue=q)
+timer = cygcd.Timer(interval=1.0, handler=on_tick, queue=q)
 timer.start()
 timer.cancel()
 ```
@@ -61,7 +61,7 @@ Functions wrapped:
 Required for GUI applications and main-thread callbacks.
 
 ```python
-main = pygcd.Queue.main_queue()
+main = cygcd.Queue.main_queue()
 main.run_async(update_ui)
 ```
 
@@ -75,7 +75,7 @@ Note: `dispatch_main()` conflicts with Python's event loop - document alternativ
 Schedule tasks at absolute times.
 
 ```python
-t = pygcd.walltime(timestamp=time.time(), delta_seconds=60)
+t = cygcd.walltime(timestamp=time.time(), delta_seconds=60)
 ```
 
 Functions wrapped:
@@ -92,7 +92,7 @@ Advanced features for specialized use cases.
 Handle Unix signals asynchronously.
 
 ```python
-sig = pygcd.SignalSource(signal.SIGINT, handler=on_interrupt, queue=q)
+sig = cygcd.SignalSource(signal.SIGINT, handler=on_interrupt, queue=q)
 sig.start()
 ```
 
@@ -106,8 +106,8 @@ Functions wrapped:
 Monitor file descriptors for read/write readiness.
 
 ```python
-reader = pygcd.ReadSource(fd, handler=on_readable, queue=q)
-writer = pygcd.WriteSource(fd, handler=on_writable, queue=q)
+reader = cygcd.ReadSource(fd, handler=on_readable, queue=q)
+writer = cygcd.WriteSource(fd, handler=on_writable, queue=q)
 ```
 
 Functions wrapped:
@@ -118,7 +118,7 @@ Functions wrapped:
 Monitor process lifecycle events.
 
 ```python
-proc = pygcd.ProcessSource(pid, handler=on_exit, events=pygcd.PROC_EXIT, queue=q)
+proc = cygcd.ProcessSource(pid, handler=on_exit, events=cygcd.PROC_EXIT, queue=q)
 ```
 
 Functions wrapped:
@@ -130,8 +130,8 @@ Functions wrapped:
 Create queue hierarchies for priority management.
 
 ```python
-parent = pygcd.Queue("parent")
-child = pygcd.Queue("child", target=parent)
+parent = cygcd.Queue("parent")
+child = cygcd.Queue("child", target=parent)
 ```
 
 Functions wrapped:
@@ -142,7 +142,7 @@ Functions wrapped:
 Fine-grained quality of service control.
 
 ```python
-q = pygcd.Queue("work", qos=pygcd.QOS_CLASS_UTILITY)
+q = cygcd.Queue("work", qos=cygcd.QOS_CLASS_UTILITY)
 ```
 
 Functions wrapped:
@@ -159,7 +159,7 @@ Specialized APIs with narrower use cases.
 High-performance async file I/O.
 
 ```python
-channel = pygcd.IOChannel(fd, queue=q)
+channel = cygcd.IOChannel(fd, queue=q)
 channel.read(length, handler=on_data)
 channel.write(data, handler=on_complete)
 channel.close()
@@ -180,8 +180,8 @@ Functions to wrap:
 Simple async file operations.
 
 ```python
-pygcd.read_async(fd, length, callback, queue=q)
-pygcd.write_async(fd, data, callback, queue=q)
+cygcd.read_async(fd, length, callback, queue=q)
+cygcd.write_async(fd, data, callback, queue=q)
 ```
 
 Functions wrapped:
@@ -193,7 +193,7 @@ Functions wrapped:
 Efficient buffer management for I/O.
 
 ```python
-data = pygcd.Data(bytes_obj)
+data = cygcd.Data(bytes_obj)
 combined = data.concat(other_data)
 region = data.subrange(offset, length)
 ```
@@ -212,7 +212,7 @@ Functions wrapped:
 Create queues that don't start until activated.
 
 ```python
-q = pygcd.Queue("lazy", inactive=True)
+q = cygcd.Queue("lazy", inactive=True)
 # configure queue...
 q.activate()
 ```
@@ -226,7 +226,7 @@ Functions wrapped:
 Priority-inversion-avoiding queues.
 
 ```python
-wl = pygcd.Workloop("priority-work")
+wl = cygcd.Workloop("priority-work")
 wl.run_async(task)
 wl.run_sync(task)
 ```
@@ -259,7 +259,7 @@ Thread-local-like storage for queues.
 
 ```python
 q.set_specific(key, value)
-value = pygcd.get_specific(key)  # from current queue
+value = cygcd.get_specific(key)  # from current queue
 ```
 
 Functions to wrap:

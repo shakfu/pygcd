@@ -14,4 +14,4 @@ if(APPLE)
     target_link_libraries(_core PRIVATE "-framework CoreFoundation")
 endif()
 
-install(TARGETS _core DESTINATION pygcd)
+install(TARGETS _core DESTINATION cygcd)

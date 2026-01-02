@@ -6,7 +6,7 @@ Timers fire repeatedly at specified intervals or once after a delay.
 """
 
 import time
-import pygcd
+import cygcd
 
 
 def main():
@@ -18,7 +18,7 @@ def main():
         print(f"Tick {count[0]} at {time.time():.2f}")
 
     # Create a repeating timer that fires every 0.3 seconds
-    timer = pygcd.Timer(0.3, tick)
+    timer = cygcd.Timer(0.3, tick)
     timer.start()
 
     time.sleep(1.5)
@@ -31,7 +31,7 @@ def main():
         print("One-shot timer fired!")
 
     # Create a one-shot timer that fires once after 0.5 seconds
-    one_shot = pygcd.Timer(0.0, delayed_action, start_delay=0.5, repeating=False)
+    one_shot = cygcd.Timer(0.0, delayed_action, start_delay=0.5, repeating=False)
     one_shot.start()
 
     time.sleep(1.0)
@@ -45,7 +45,7 @@ def main():
         print(f"Timer fired at {elapsed:.2f}s")
 
     # Timer that waits 0.3s before first fire, then fires every 0.2s
-    delayed = pygcd.Timer(0.2, report, start_delay=0.3)
+    delayed = cygcd.Timer(0.2, report, start_delay=0.3)
     delayed.start()
 
     time.sleep(1.0)
@@ -59,7 +59,7 @@ def main():
         print(f"Fire {fire_count[0]}")
 
     # Start slow
-    reconfig = pygcd.Timer(0.5, counter)
+    reconfig = cygcd.Timer(0.5, counter)
     reconfig.start()
 
     time.sleep(0.6)

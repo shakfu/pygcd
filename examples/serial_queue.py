@@ -7,7 +7,7 @@ Equivalent to serial_queue.c
 Serial queues execute tasks one at a time in FIFO order.
 """
 
-import pygcd
+import cygcd
 
 counter = 0
 
@@ -20,7 +20,7 @@ def increment():
 
 def main():
     # Create a serial queue
-    serial = pygcd.Queue("com.example.serial")
+    serial = cygcd.Queue("com.example.serial")
 
     # Submit 5 tasks
     for _ in range(5):

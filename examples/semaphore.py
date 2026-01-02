@@ -9,7 +9,7 @@ A semaphore with value N allows N tasks to proceed concurrently.
 """
 
 import time
-import pygcd
+import cygcd
 
 
 def work(task_id, sem):
@@ -24,10 +24,10 @@ def work(task_id, sem):
 
 def main():
     # Create semaphore allowing 2 concurrent tasks
-    sem = pygcd.Semaphore(2)
+    sem = cygcd.Semaphore(2)
 
     # Get a global queue
-    q = pygcd.Queue.global_queue(pygcd.QOS_CLASS_DEFAULT)
+    q = cygcd.Queue.global_queue(cygcd.QOS_CLASS_DEFAULT)
 
     # Submit 5 tasks - only 2 will run at a time
     for i in range(1, 6):

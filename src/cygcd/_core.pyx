@@ -1,6 +1,6 @@
 # cython: language_level=3
 """
-pygcd - Python wrapper for macOS Grand Central Dispatch (GCD).
+cygcd - Python wrapper for macOS Grand Central Dispatch (GCD).
 
 Provides Python bindings to Apple's GCD framework for concurrent programming.
 """

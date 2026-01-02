@@ -97,7 +97,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Initial release of pygcd - Python wrapper for macOS Grand Central Dispatch
+- Initial release of cygcd - Python wrapper for macOS Grand Central Dispatch
 
 #### Core Classes
 

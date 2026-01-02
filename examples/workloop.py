@@ -7,7 +7,7 @@ Workloops are specialized queues designed for scenarios where work items
 have varying priorities and priority inversion must be avoided.
 """
 
-import pygcd
+import cygcd
 import time
 
 
@@ -16,7 +16,7 @@ def main():
 
     # Create a basic workloop
     print("Creating workloop...")
-    wl = pygcd.Workloop("com.example.workloop")
+    wl = cygcd.Workloop("com.example.workloop")
     print(f"Workloop created, is_inactive: {wl.is_inactive}")
 
     # --- Basic Async Execution ---
@@ -53,7 +53,7 @@ def main():
     print("\n=== Inactive Workloop ===\n")
 
     print("Creating inactive workloop...")
-    inactive_wl = pygcd.Workloop("com.example.inactive", inactive=True)
+    inactive_wl = cygcd.Workloop("com.example.inactive", inactive=True)
     print(f"Created, is_inactive: {inactive_wl.is_inactive}")
 
     # Note: Cannot submit work to inactive workloop
@@ -76,7 +76,7 @@ def main():
     # --- Use Case: Task Processing ---
     print("\n=== Use Case: Task Processing ===\n")
 
-    processor = pygcd.Workloop("com.example.processor")
+    processor = cygcd.Workloop("com.example.processor")
     processed = []
 
     def process_item(item):
@@ -105,11 +105,11 @@ def main():
     print("  - Ideal for priority-sensitive workloads")
 
     # Regular queue for comparison
-    q = pygcd.Queue("com.example.queue")
+    q = cygcd.Queue("com.example.queue")
     q_results = []
     wl_results = []
 
-    work_wl = pygcd.Workloop("com.example.compare")
+    work_wl = cygcd.Workloop("com.example.compare")
 
     print("\nRunning same tasks on queue and workloop...")
 

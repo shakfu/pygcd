@@ -6,7 +6,7 @@ Demonstrates using dispatch_data for efficient buffer management.
 Data objects are immutable and support zero-copy operations where possible.
 """
 
-import pygcd
+import cygcd
 
 
 def main():
@@ -14,14 +14,14 @@ def main():
 
     # Create empty data
     print("Creating empty Data:")
-    empty = pygcd.Data()
+    empty = cygcd.Data()
     print(f"  Size: {len(empty)}")
     print(f"  Bytes: {bytes(empty)!r}")
 
     # Create data from bytes
     print("\nCreating Data from bytes:")
-    data1 = pygcd.Data(b"Hello, ")
-    data2 = pygcd.Data(b"World!")
+    data1 = cygcd.Data(b"Hello, ")
+    data2 = cygcd.Data(b"World!")
     print(f"  data1: {bytes(data1)!r} (size={len(data1)})")
     print(f"  data2: {bytes(data2)!r} (size={len(data2)})")
 
@@ -35,7 +35,7 @@ def main():
 
     # Create subrange
     print("\nExtracting subranges:")
-    message = pygcd.Data(b"The quick brown fox jumps over the lazy dog")
+    message = cygcd.Data(b"The quick brown fox jumps over the lazy dog")
     print(f"  Original: {bytes(message)!r}")
 
     # Extract "quick"
@@ -52,9 +52,9 @@ def main():
 
     # Chaining operations
     print("\nChaining operations:")
-    part1 = pygcd.Data(b"[START]")
-    part2 = pygcd.Data(b"--MIDDLE--")
-    part3 = pygcd.Data(b"[END]")
+    part1 = cygcd.Data(b"[START]")
+    part2 = cygcd.Data(b"--MIDDLE--")
+    part3 = cygcd.Data(b"[END]")
 
     result = part1.concat(part2).concat(part3)
     print(f"  Chained: {bytes(result)!r}")
@@ -65,7 +65,7 @@ def main():
 
     # Working with binary data
     print("\nWorking with binary data:")
-    binary = pygcd.Data(bytes([0x00, 0x01, 0x02, 0xFF, 0xFE, 0xFD]))
+    binary = cygcd.Data(bytes([0x00, 0x01, 0x02, 0xFF, 0xFE, 0xFD]))
     print(f"  Binary data: {bytes(binary).hex()}")
     print(f"  Size: {binary.size} bytes")
 
@@ -76,10 +76,10 @@ def main():
     # Use case: Building a packet
     print("\n=== Use Case: Building a Network Packet ===\n")
 
-    header = pygcd.Data(b"\x01\x02")  # Version, flags
-    length = pygcd.Data(b"\x00\x0B")  # Payload length (11 bytes)
-    payload = pygcd.Data(b"Hello World")
-    checksum = pygcd.Data(b"\xFF")  # Dummy checksum
+    header = cygcd.Data(b"\x01\x02")  # Version, flags
+    length = cygcd.Data(b"\x00\x0B")  # Payload length (11 bytes)
+    payload = cygcd.Data(b"Hello World")
+    checksum = cygcd.Data(b"\xFF")  # Dummy checksum
 
     packet = header.concat(length).concat(payload).concat(checksum)
     print(f"  Packet ({len(packet)} bytes): {bytes(packet).hex()}")

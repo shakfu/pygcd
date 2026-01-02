@@ -12,7 +12,7 @@ ProcessSource monitors a process for lifecycle events:
 import os
 import subprocess
 import time
-import pygcd
+import cygcd
 
 
 def main():
@@ -30,7 +30,7 @@ def main():
     # Launch several child processes with different durations
     processes = []
     sources = []
-    q = pygcd.Queue("process.monitor")
+    q = cygcd.Queue("process.monitor")
 
     for i, delay in enumerate([0.3, 0.1, 0.2]):
         name = f"child_{i + 1}"
@@ -38,10 +38,10 @@ def main():
         processes.append((name, proc))
 
         # Monitor for exit
-        source = pygcd.ProcessSource(
+        source = cygcd.ProcessSource(
             proc.pid,
             make_exit_handler(name),
-            events=pygcd.PROC_EXIT,
+            events=cygcd.PROC_EXIT,
             queue=q
         )
         source.start()
@@ -74,7 +74,7 @@ def main():
     proc = subprocess.Popen(["sleep", "2"])
     print(f"Launched long-running process (PID {proc.pid})")
 
-    source = pygcd.ProcessSource(proc.pid, on_exit, events=pygcd.PROC_EXIT, queue=q)
+    source = cygcd.ProcessSource(proc.pid, on_exit, events=cygcd.PROC_EXIT, queue=q)
     source.start()
 
     # Wait a bit, then terminate
@@ -119,10 +119,10 @@ else:
     print(f"Launched forking process (PID {proc.pid})")
 
     # Monitor for fork and exit events
-    source = pygcd.ProcessSource(
+    source = cygcd.ProcessSource(
         proc.pid,
         on_events,
-        events=pygcd.PROC_FORK | pygcd.PROC_EXIT,
+        events=cygcd.PROC_FORK | cygcd.PROC_EXIT,
         queue=q
     )
     source.start()
@@ -146,7 +146,7 @@ else:
             exit_time[0] = time.time() - start_time
 
         proc = subprocess.Popen(cmd, shell=True)
-        source = pygcd.ProcessSource(proc.pid, on_done, queue=q)
+        source = cygcd.ProcessSource(proc.pid, on_done, queue=q)
         source.start()
 
         print(f"Running: {cmd}")

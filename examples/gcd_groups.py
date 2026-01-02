@@ -10,7 +10,7 @@ of them to complete, or be notified when they complete.
 
 import random
 import time
-import pygcd
+import cygcd
 
 
 def do_work(task_id):
@@ -26,10 +26,10 @@ def all_done():
 
 def main():
     # Get a global queue with high priority
-    q = pygcd.Queue.global_queue(pygcd.QOS_CLASS_USER_INITIATED)
+    q = cygcd.Queue.global_queue(cygcd.QOS_CLASS_USER_INITIATED)
 
     # Create a group to track tasks
-    g = pygcd.Group()
+    g = cygcd.Group()
 
     print("Scheduling tasks...")
 
@@ -38,7 +38,7 @@ def main():
         g.run_async(q, lambda i=i: do_work(i))
 
     # Set up notification when all tasks complete
-    notify_queue = pygcd.Queue("com.example.notify")
+    notify_queue = cygcd.Queue("com.example.notify")
     g.notify(notify_queue, all_done)
 
     # Wait for all tasks to complete

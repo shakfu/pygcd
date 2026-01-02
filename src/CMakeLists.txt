@@ -1,2 +1,2 @@
 
-add_subdirectory(pygcd)
+add_subdirectory(cygcd)

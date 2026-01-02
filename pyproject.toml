@@ -1,19 +1,50 @@
 [project]
-name = "pygcd"
+name = "cygcd"
 version = "0.2.0"
-description = "A Python extension module built with Cython"
+description = "Python wrapper for macOS Grand Central Dispatch (GCD)"
+readme = "README.md"
+license = {text = "MIT"}
 requires-python = ">=3.9"
+keywords = ["gcd", "grand-central-dispatch", "macos", "concurrency", "async", "dispatch"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS :: MacOS X",
+    "Programming Language :: Cython",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Operating System Kernels :: BSD",
+]
+
+[project.urls]
+Homepage = "https://github.com/pybind/cygcd"
+Documentation = "https://github.com/pybind/cygcd#readme"
+Repository = "https://github.com/pybind/cygcd"
+Issues = "https://github.com/pybind/cygcd/issues"
 
 [build-system]
 requires = ["scikit-build-core", "cython"]
 build-backend = "scikit_build_core.build"
 
 [tool.scikit-build]
-wheel.packages = ["src/pygcd"]
+wheel.packages = ["src/cygcd"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
 
 [dependency-groups]
 dev = [
     "mypy>=1.19.1",
     "pytest>=8.4.2",
     "ruff>=0.14.10",
+    "twine>=6.2.0",
 ]

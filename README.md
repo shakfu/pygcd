@@ -1,4 +1,4 @@
-# pygcd
+# cygcd
 
 Python wrapper for Apple's Grand Central Dispatch (GCD) framework on macOS.
 
@@ -9,7 +9,7 @@ GCD provides a powerful API for concurrent programming, allowing you to execute 
 ```bash
 # Clone and install
 git clone <repository>
-cd pygcd
+cd cygcd
 make
 ```
 
@@ -18,10 +18,10 @@ Requires macOS and Python 3.9+.
 ## Quick Start
 
 ```python
-import pygcd
+import cygcd
 
 # Create a serial queue
-q = pygcd.Queue("com.example.myqueue")
+q = cygcd.Queue("com.example.myqueue")
 
 # Execute tasks asynchronously
 q.run_async(lambda: print("Hello from GCD!"))
@@ -37,24 +37,24 @@ q.run_sync(lambda: print("This runs and waits"))
 Queues manage task execution. Serial queues execute one task at a time in FIFO order. Concurrent queues can execute multiple tasks simultaneously.
 
 ```python
-import pygcd
+import cygcd
 
 # Serial queue (default) - tasks run one at a time
-serial = pygcd.Queue("com.example.serial")
+serial = cygcd.Queue("com.example.serial")
 
 # Concurrent queue - tasks can run in parallel
-concurrent = pygcd.Queue("com.example.concurrent", concurrent=True)
+concurrent = cygcd.Queue("com.example.concurrent", concurrent=True)
 
 # Global queues (system-managed, concurrent)
-high_priority = pygcd.Queue.global_queue(pygcd.QUEUE_PRIORITY_HIGH)
-default = pygcd.Queue.global_queue(pygcd.QOS_CLASS_DEFAULT)
-background = pygcd.Queue.global_queue(pygcd.QUEUE_PRIORITY_BACKGROUND)
+high_priority = cygcd.Queue.global_queue(cygcd.QUEUE_PRIORITY_HIGH)
+default = cygcd.Queue.global_queue(cygcd.QOS_CLASS_DEFAULT)
+background = cygcd.Queue.global_queue(cygcd.QUEUE_PRIORITY_BACKGROUND)
 ```
 
 ### Async and Sync Execution
 
 ```python
-q = pygcd.Queue("example")
+q = cygcd.Queue("example")
 results = []
 
 # Async - returns immediately, task runs later
@@ -71,7 +71,7 @@ print(results)  # ['async', 'sync']
 Barriers on concurrent queues wait for all previous tasks to complete, execute exclusively, then allow subsequent tasks.
 
 ```python
-q = pygcd.Queue("rw", concurrent=True)
+q = cygcd.Queue("rw", concurrent=True)
 data = {"value": 0}
 
 def read():
@@ -99,10 +99,10 @@ q.barrier_sync(lambda: None)  # Wait for all
 Groups track completion of multiple tasks across queues.
 
 ```python
-import pygcd
+import cygcd
 
-g = pygcd.Group()
-q = pygcd.Queue.global_queue()
+g = cygcd.Group()
+q = cygcd.Queue.global_queue()
 results = []
 
 # Submit tasks to the group
@@ -123,11 +123,11 @@ Semaphores limit concurrent access to resources.
 
 ```python
 import time
-import pygcd
+import cygcd
 
 # Allow 2 concurrent operations
-sem = pygcd.Semaphore(2)
-q = pygcd.Queue.global_queue()
+sem = cygcd.Semaphore(2)
+q = cygcd.Queue.global_queue()
 
 def limited_task(task_id):
     sem.wait()  # Acquire (blocks if at limit)
@@ -146,7 +146,7 @@ Execute a function N times in parallel (like a parallel for loop).
 
 ```python
 import threading
-import pygcd
+import cygcd
 
 results = []
 lock = threading.Lock()
@@ -157,7 +157,7 @@ def process(index):
         results.append(result)
 
 # Execute 10 times in parallel, blocks until complete
-pygcd.apply(10, process)
+cygcd.apply(10, process)
 
 print(sorted(results))  # [0, 1, 4, 9, 16, 25, 36, 49, 64, 81]
 ```
@@ -168,9 +168,9 @@ Schedule tasks to run after a delay.
 
 ```python
 import time
-import pygcd
+import cygcd
 
-q = pygcd.Queue("timer")
+q = cygcd.Queue("timer")
 start = time.time()
 
 q.after(0.5, lambda: print(f"Executed after {time.time() - start:.2f}s"))
@@ -184,9 +184,9 @@ time.sleep(1.5)
 Execute a callable exactly once, even from multiple threads.
 
 ```python
-import pygcd
+import cygcd
 
-once = pygcd.Once()
+once = cygcd.Once()
 initialized = False
 
 def init():
@@ -205,7 +205,7 @@ once(init)
 Repeating or one-shot timers using dispatch sources.
 
 ```python
-import pygcd
+import cygcd
 
 count = 0
 
@@ -215,14 +215,14 @@ def tick():
     print(f"Tick {count}")
 
 # Create a repeating timer (fires every 0.5 seconds)
-timer = pygcd.Timer(0.5, tick)
+timer = cygcd.Timer(0.5, tick)
 timer.start()
 
 # ... later
 timer.cancel()
 
 # One-shot timer (fires once after delay)
-one_shot = pygcd.Timer(1.0, lambda: print("Done!"), repeating=False)
+one_shot = cygcd.Timer(1.0, lambda: print("Done!"), repeating=False)
 one_shot.start()
 ```
 
@@ -233,7 +233,7 @@ Handle Unix signals asynchronously on a dispatch queue.
 ```python
 import os
 import signal
-import pygcd
+import cygcd
 
 def on_signal():
     print("Received SIGUSR1!")
@@ -242,7 +242,7 @@ def on_signal():
 signal.signal(signal.SIGUSR1, signal.SIG_IGN)
 
 # Create signal source
-source = pygcd.SignalSource(signal.SIGUSR1, on_signal)
+source = cygcd.SignalSource(signal.SIGUSR1, on_signal)
 source.start()
 
 # Send signal to self
@@ -258,7 +258,7 @@ Monitor file descriptors for read/write availability.
 
 ```python
 import os
-import pygcd
+import cygcd
 
 r, w = os.pipe()
 
@@ -267,7 +267,7 @@ def on_readable():
     print(f"Received: {data}")
 
 # Monitor for readable data
-reader = pygcd.ReadSource(r, on_readable)
+reader = cygcd.ReadSource(r, on_readable)
 reader.start()
 
 # Write triggers the handler
@@ -283,7 +283,7 @@ Monitor processes for lifecycle events.
 
 ```python
 import subprocess
-import pygcd
+import cygcd
 
 def on_exit():
     print("Child process exited!")
@@ -292,7 +292,7 @@ def on_exit():
 proc = subprocess.Popen(["sleep", "1"])
 
 # Monitor for exit
-source = pygcd.ProcessSource(proc.pid, on_exit, events=pygcd.PROC_EXIT)
+source = cygcd.ProcessSource(proc.pid, on_exit, events=cygcd.PROC_EXIT)
 source.start()
 
 # Wait for exit notification
@@ -306,7 +306,7 @@ source.cancel()
 Control queue execution.
 
 ```python
-q = pygcd.Queue("work")
+q = cygcd.Queue("work")
 
 q.suspend()
 # Queue accepts tasks but doesn't execute them
@@ -321,17 +321,17 @@ q.resume()
 Create queues that don't execute until activated. Useful for batch configuration.
 
 ```python
-import pygcd
+import cygcd
 
 # Create an inactive queue
-q = pygcd.Queue("lazy", inactive=True)
+q = cygcd.Queue("lazy", inactive=True)
 print(q.is_inactive)  # True
 
 # Submit work (queued but not executed)
 q.run_async(lambda: print("Waiting to run..."))
 
 # Configure the queue while inactive
-q.set_target_queue(pygcd.Queue.global_queue())
+q.set_target_queue(cygcd.Queue.global_queue())
 
 # Activate to begin execution
 q.activate()
@@ -343,7 +343,7 @@ print(q.is_inactive)  # False
 Access the main thread's queue (useful for GUI apps).
 
 ```python
-main = pygcd.Queue.main_queue()
+main = cygcd.Queue.main_queue()
 main.run_async(update_ui)
 ```
 
@@ -353,14 +353,14 @@ Schedule based on wall clock (adjusts for system time changes).
 
 ```python
 import time
-import pygcd
+import cygcd
 
 # Schedule 60 seconds from now using wall clock
-t = pygcd.walltime(delta_seconds=60)
+t = cygcd.walltime(delta_seconds=60)
 
 # Schedule at a specific Unix timestamp
 future = time.time() + 3600  # 1 hour from now
-t = pygcd.walltime(timestamp=future)
+t = cygcd.walltime(timestamp=future)
 ```
 
 ### Dispatch Data
@@ -368,20 +368,20 @@ t = pygcd.walltime(timestamp=future)
 Efficient immutable buffers for I/O operations.
 
 ```python
-import pygcd
+import cygcd
 
 # Create from bytes
-data = pygcd.Data(b"Hello, World!")
+data = cygcd.Data(b"Hello, World!")
 print(len(data))  # 13
 print(bytes(data))  # b'Hello, World!'
 
 # Concatenate (returns new Data, originals unchanged)
-part1 = pygcd.Data(b"Hello, ")
-part2 = pygcd.Data(b"World!")
+part1 = cygcd.Data(b"Hello, ")
+part2 = cygcd.Data(b"World!")
 combined = part1.concat(part2)
 
 # Extract subrange
-message = pygcd.Data(b"The quick brown fox")
+message = cygcd.Data(b"The quick brown fox")
 word = message.subrange(4, 5)  # b"quick"
 ```
 
@@ -391,18 +391,18 @@ Non-blocking file read and write operations.
 
 ```python
 import os
-import pygcd
+import cygcd
 
 # Async read
 fd = os.open("file.txt", os.O_RDONLY)
-sem = pygcd.Semaphore(0)
+sem = cygcd.Semaphore(0)
 
 def on_read(data, error):
     if error == 0:
         print(f"Read {len(data)} bytes: {data}")
     sem.signal()
 
-pygcd.read_async(fd, 1024, on_read)
+cygcd.read_async(fd, 1024, on_read)
 sem.wait()
 os.close(fd)
 
@@ -414,7 +414,7 @@ def on_write(remaining, error):
         print("Write complete")
     sem.signal()
 
-pygcd.write_async(fd, b"Hello!", on_write)
+cygcd.write_async(fd, b"Hello!", on_write)
 sem.wait()
 os.close(fd)
 ```
@@ -424,17 +424,17 @@ os.close(fd)
 Priority-inversion-avoiding queues for priority-sensitive workloads.
 
 ```python
-import pygcd
+import cygcd
 
 # Create a workloop
-wl = pygcd.Workloop("com.example.workloop")
+wl = cygcd.Workloop("com.example.workloop")
 
 # Submit work (same API as queues)
 wl.run_async(lambda: print("Async task"))
 wl.run_sync(lambda: print("Sync task"))
 
 # Inactive workloops (cannot submit work until activated)
-inactive_wl = pygcd.Workloop("lazy", inactive=True)
+inactive_wl = cygcd.Workloop("lazy", inactive=True)
 inactive_wl.activate()  # Now ready for work
 inactive_wl.run_sync(lambda: print("Running!"))
 ```

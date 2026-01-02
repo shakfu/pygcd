@@ -10,7 +10,7 @@ and block subsequent tasks until the barrier completes.
 """
 
 import time
-import pygcd
+import cygcd
 
 value = 0
 
@@ -27,7 +27,7 @@ def writer():
 
 def main():
     # Create a concurrent queue
-    q = pygcd.Queue("com.example.concurrent", concurrent=True)
+    q = cygcd.Queue("com.example.concurrent", concurrent=True)
 
     # Submit reader tasks (may run concurrently)
     q.run_async(reader)

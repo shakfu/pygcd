@@ -8,14 +8,14 @@ Uses a semaphore to coordinate between producer and consumer tasks.
 """
 
 import time
-import pygcd
+import cygcd
 
 
 def main():
-    q = pygcd.Queue.global_queue()
+    q = cygcd.Queue.global_queue()
 
     # Semaphore starts at 0 - consumer must wait for producer
-    sem = pygcd.Semaphore(0)
+    sem = cygcd.Semaphore(0)
 
     # Shared data
     data = {"value": None}

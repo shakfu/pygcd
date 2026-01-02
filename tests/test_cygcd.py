@@ -1,4 +1,4 @@
-"""Tests for pygcd - Python GCD wrapper."""
+"""Tests for cygcd - Python GCD wrapper."""
 
 import os
 import signal
@@ -6,7 +6,7 @@ import subprocess
 import time
 import threading
 import pytest
-import pygcd
+import cygcd
 
 
 class TestQueue:
@@ -14,33 +14,33 @@ class TestQueue:
 
     def test_create_serial_queue(self):
         """Test creating a serial queue."""
-        q = pygcd.Queue("test.serial")
+        q = cygcd.Queue("test.serial")
         assert q.label == "test.serial"
 
     def test_create_concurrent_queue(self):
         """Test creating a concurrent queue."""
-        q = pygcd.Queue("test.concurrent", concurrent=True)
+        q = cygcd.Queue("test.concurrent", concurrent=True)
         assert q.label == "test.concurrent"
 
     def test_create_queue_no_label(self):
         """Test creating a queue without a label."""
-        q = pygcd.Queue()
+        q = cygcd.Queue()
         # Label may be None or empty string depending on implementation
         assert q.label is None or q.label == ""
 
     def test_global_queue(self):
         """Test getting global queue."""
-        q = pygcd.Queue.global_queue()
+        q = cygcd.Queue.global_queue()
         assert q is not None
         # Global queues have system labels
         assert q.label is not None
 
     def test_global_queue_priorities(self):
         """Test getting global queues with different priorities."""
-        high = pygcd.Queue.global_queue(pygcd.QUEUE_PRIORITY_HIGH)
-        default = pygcd.Queue.global_queue(pygcd.QUEUE_PRIORITY_DEFAULT)
-        low = pygcd.Queue.global_queue(pygcd.QUEUE_PRIORITY_LOW)
-        bg = pygcd.Queue.global_queue(pygcd.QUEUE_PRIORITY_BACKGROUND)
+        high = cygcd.Queue.global_queue(cygcd.QUEUE_PRIORITY_HIGH)
+        default = cygcd.Queue.global_queue(cygcd.QUEUE_PRIORITY_DEFAULT)
+        low = cygcd.Queue.global_queue(cygcd.QUEUE_PRIORITY_LOW)
+        bg = cygcd.Queue.global_queue(cygcd.QUEUE_PRIORITY_BACKGROUND)
         assert high is not None
         assert default is not None
         assert low is not None
@@ -48,12 +48,12 @@ class TestQueue:
 
     def test_global_queue_qos(self):
         """Test getting global queues with QOS classes."""
-        q = pygcd.Queue.global_queue(pygcd.QOS_CLASS_USER_INITIATED)
+        q = cygcd.Queue.global_queue(cygcd.QOS_CLASS_USER_INITIATED)
         assert q is not None
 
     def test_async_execution(self):
         """Test run_async executes the callable."""
-        q = pygcd.Queue("test.async")
+        q = cygcd.Queue("test.async")
         results = []
 
         def task():
@@ -66,7 +66,7 @@ class TestQueue:
 
     def test_sync_execution(self):
         """Test run_sync executes the callable and blocks."""
-        q = pygcd.Queue("test.sync")
+        q = cygcd.Queue("test.sync")
         results = []
 
         def task():
@@ -77,7 +77,7 @@ class TestQueue:
 
     def test_serial_queue_order(self):
         """Test that serial queue maintains FIFO order."""
-        q = pygcd.Queue("test.order")
+        q = cygcd.Queue("test.order")
         results = []
 
         for i in range(5):
@@ -88,7 +88,7 @@ class TestQueue:
 
     def test_barrier_async(self):
         """Test barrier_async on concurrent queue."""
-        q = pygcd.Queue("test.barrier", concurrent=True)
+        q = cygcd.Queue("test.barrier", concurrent=True)
         results = []
 
         # Submit some reads
@@ -118,7 +118,7 @@ class TestQueue:
 
     def test_barrier_sync(self):
         """Test barrier_sync blocks until complete."""
-        q = pygcd.Queue("test.barrier_sync", concurrent=True)
+        q = cygcd.Queue("test.barrier_sync", concurrent=True)
         results = []
 
         q.run_async(lambda: results.append(1))
@@ -128,7 +128,7 @@ class TestQueue:
 
     def test_after_delayed_execution(self):
         """Test after schedules delayed execution."""
-        q = pygcd.Queue("test.after")
+        q = cygcd.Queue("test.after")
         results = []
         start = time.time()
 
@@ -143,13 +143,13 @@ class TestQueue:
 
     def test_async_raises_on_non_callable(self):
         """Test that run_async raises TypeError for non-callable."""
-        q = pygcd.Queue("test.error")
+        q = cygcd.Queue("test.error")
         with pytest.raises(TypeError):
             q.run_async("not a callable")
 
     def test_sync_raises_on_non_callable(self):
         """Test that run_sync raises TypeError for non-callable."""
-        q = pygcd.Queue("test.error")
+        q = cygcd.Queue("test.error")
         with pytest.raises(TypeError):
             q.run_sync(42)
 
@@ -159,13 +159,13 @@ class TestGroup:
 
     def test_create_group(self):
         """Test creating a group."""
-        g = pygcd.Group()
+        g = cygcd.Group()
         assert g is not None
 
     def test_group_async_and_wait(self):
         """Test submitting tasks to group and waiting."""
-        g = pygcd.Group()
-        q = pygcd.Queue.global_queue()
+        g = cygcd.Group()
+        q = cygcd.Queue.global_queue()
         results = []
 
         for i in range(5):
@@ -177,8 +177,8 @@ class TestGroup:
 
     def test_group_wait_timeout(self):
         """Test group wait with timeout."""
-        g = pygcd.Group()
-        q = pygcd.Queue.global_queue()
+        g = cygcd.Group()
+        q = cygcd.Queue.global_queue()
 
         def slow_task():
             time.sleep(0.5)
@@ -189,8 +189,8 @@ class TestGroup:
 
     def test_group_notify(self):
         """Test group notify callback."""
-        g = pygcd.Group()
-        q = pygcd.Queue("test.notify")
+        g = cygcd.Group()
+        q = cygcd.Queue("test.notify")
         results = []
 
         for i in range(3):
@@ -206,8 +206,8 @@ class TestGroup:
 
     def test_group_enter_leave(self):
         """Test manual group enter/leave."""
-        g = pygcd.Group()
-        q = pygcd.Queue.global_queue()
+        g = cygcd.Group()
+        q = cygcd.Queue.global_queue()
         results = []
 
         g.enter()
@@ -227,13 +227,13 @@ class TestSemaphore:
 
     def test_create_semaphore(self):
         """Test creating a semaphore."""
-        s = pygcd.Semaphore(1)
+        s = cygcd.Semaphore(1)
         assert s is not None
 
     def test_semaphore_signal_wait(self):
         """Test semaphore signal and wait."""
-        s = pygcd.Semaphore(0)
-        q = pygcd.Queue.global_queue()
+        s = cygcd.Semaphore(0)
+        q = cygcd.Queue.global_queue()
         results = []
 
         def producer():
@@ -253,14 +253,14 @@ class TestSemaphore:
 
     def test_semaphore_timeout(self):
         """Test semaphore wait with timeout."""
-        s = pygcd.Semaphore(0)
+        s = cygcd.Semaphore(0)
         acquired = s.wait(0.1)
         assert acquired is False
 
     def test_semaphore_resource_limiting(self):
         """Test semaphore limits concurrent access."""
-        s = pygcd.Semaphore(2)  # Allow 2 concurrent
-        q = pygcd.Queue.global_queue()
+        s = cygcd.Semaphore(2)  # Allow 2 concurrent
+        q = cygcd.Queue.global_queue()
         active = []
         max_active = [0]
         lock = threading.Lock()
@@ -276,7 +276,7 @@ class TestSemaphore:
                 active.remove(i)
             s.signal()
 
-        g = pygcd.Group()
+        g = cygcd.Group()
         for i in range(5):
             g.run_async(q, lambda i=i: task(i))
 
@@ -289,7 +289,7 @@ class TestOnce:
 
     def test_once_executes_once(self):
         """Test Once executes callable exactly once."""
-        once = pygcd.Once()
+        once = cygcd.Once()
         results = []
 
         def init():
@@ -303,7 +303,7 @@ class TestOnce:
 
     def test_once_thread_safe(self):
         """Test Once is thread-safe."""
-        once = pygcd.Once()
+        once = cygcd.Once()
         results = []
         lock = threading.Lock()
 
@@ -311,8 +311,8 @@ class TestOnce:
             with lock:
                 results.append(1)
 
-        q = pygcd.Queue.global_queue()
-        g = pygcd.Group()
+        q = cygcd.Queue.global_queue()
+        g = cygcd.Group()
 
         for _ in range(10):
             g.run_async(q, lambda: once(init))
@@ -333,12 +333,12 @@ class TestApply:
             with lock:
                 results.append(i)
 
-        pygcd.apply(5, task)
+        cygcd.apply(5, task)
         assert sorted(results) == [0, 1, 2, 3, 4]
 
     def test_apply_with_queue(self):
         """Test apply with explicit queue."""
-        q = pygcd.Queue.global_queue()
+        q = cygcd.Queue.global_queue()
         results = []
         lock = threading.Lock()
 
@@ -346,13 +346,13 @@ class TestApply:
             with lock:
                 results.append(i)
 
-        pygcd.apply(5, task, q)
+        cygcd.apply(5, task, q)
         assert sorted(results) == [0, 1, 2, 3, 4]
 
     def test_apply_raises_on_non_callable(self):
         """Test apply raises TypeError for non-callable."""
         with pytest.raises(TypeError):
-            pygcd.apply(5, "not callable")
+            cygcd.apply(5, "not callable")
 
 
 class TestConstants:
@@ -360,29 +360,29 @@ class TestConstants:
 
     def test_time_constants(self):
         """Test time constants are defined."""
-        assert pygcd.DISPATCH_TIME_NOW == 0
-        assert pygcd.DISPATCH_TIME_FOREVER == 0xFFFFFFFFFFFFFFFF
-        assert pygcd.NSEC_PER_SEC == 1000000000
-        assert pygcd.NSEC_PER_MSEC == 1000000
-        assert pygcd.NSEC_PER_USEC == 1000
-        assert pygcd.USEC_PER_SEC == 1000000
-        assert pygcd.MSEC_PER_SEC == 1000
+        assert cygcd.DISPATCH_TIME_NOW == 0
+        assert cygcd.DISPATCH_TIME_FOREVER == 0xFFFFFFFFFFFFFFFF
+        assert cygcd.NSEC_PER_SEC == 1000000000
+        assert cygcd.NSEC_PER_MSEC == 1000000
+        assert cygcd.NSEC_PER_USEC == 1000
+        assert cygcd.USEC_PER_SEC == 1000000
+        assert cygcd.MSEC_PER_SEC == 1000
 
     def test_priority_constants(self):
         """Test priority constants are defined."""
-        assert pygcd.QUEUE_PRIORITY_HIGH == 2
-        assert pygcd.QUEUE_PRIORITY_DEFAULT == 0
-        assert pygcd.QUEUE_PRIORITY_LOW == -2
-        assert pygcd.QUEUE_PRIORITY_BACKGROUND == -32768
+        assert cygcd.QUEUE_PRIORITY_HIGH == 2
+        assert cygcd.QUEUE_PRIORITY_DEFAULT == 0
+        assert cygcd.QUEUE_PRIORITY_LOW == -2
+        assert cygcd.QUEUE_PRIORITY_BACKGROUND == -32768
 
     def test_qos_constants(self):
         """Test QOS class constants are defined."""
-        assert pygcd.QOS_CLASS_USER_INTERACTIVE == 0x21
-        assert pygcd.QOS_CLASS_USER_INITIATED == 0x19
-        assert pygcd.QOS_CLASS_DEFAULT == 0x15
-        assert pygcd.QOS_CLASS_UTILITY == 0x11
-        assert pygcd.QOS_CLASS_BACKGROUND == 0x09
-        assert pygcd.QOS_CLASS_UNSPECIFIED == 0x00
+        assert cygcd.QOS_CLASS_USER_INTERACTIVE == 0x21
+        assert cygcd.QOS_CLASS_USER_INITIATED == 0x19
+        assert cygcd.QOS_CLASS_DEFAULT == 0x15
+        assert cygcd.QOS_CLASS_UTILITY == 0x11
+        assert cygcd.QOS_CLASS_BACKGROUND == 0x09
+        assert cygcd.QOS_CLASS_UNSPECIFIED == 0x00
 
 
 class TestTimeFromNow:
@@ -390,9 +390,9 @@ class TestTimeFromNow:
 
     def test_time_from_now(self):
         """Test time_from_now returns a valid time."""
-        t = pygcd.time_from_now(1.0)
+        t = cygcd.time_from_now(1.0)
         assert t > 0
-        assert t != pygcd.DISPATCH_TIME_FOREVER
+        assert t != cygcd.DISPATCH_TIME_FOREVER
 
 
 class TestWalltime:
@@ -400,14 +400,14 @@ class TestWalltime:
 
     def test_walltime_now(self):
         """Test walltime with current time."""
-        t = pygcd.walltime()
+        t = cygcd.walltime()
         assert t > 0
-        assert t != pygcd.DISPATCH_TIME_FOREVER
+        assert t != cygcd.DISPATCH_TIME_FOREVER
 
     def test_walltime_with_delta(self):
         """Test walltime with delta."""
-        t1 = pygcd.walltime()
-        t2 = pygcd.walltime(delta_seconds=1.0)
+        t1 = cygcd.walltime()
+        t2 = cygcd.walltime(delta_seconds=1.0)
         # Walltime values decrease as time increases (relative to far future)
         # So t2 (1 second later) should be different from t1
         assert t1 != t2
@@ -417,7 +417,7 @@ class TestWalltime:
         import time
 
         now = time.time()
-        t = pygcd.walltime(timestamp=now)
+        t = cygcd.walltime(timestamp=now)
         assert t > 0
 
 
@@ -426,13 +426,13 @@ class TestMainQueue:
 
     def test_get_main_queue(self):
         """Test getting the main queue."""
-        main = pygcd.Queue.main_queue()
+        main = cygcd.Queue.main_queue()
         assert main is not None
         assert main.label is not None
 
     def test_main_queue_is_serial(self):
         """Test that main queue has the expected label."""
-        main = pygcd.Queue.main_queue()
+        main = cygcd.Queue.main_queue()
         assert "main" in main.label.lower()
 
 
@@ -441,7 +441,7 @@ class TestSuspendResume:
 
     def test_suspend_resume(self):
         """Test suspending and resuming a queue."""
-        q = pygcd.Queue("test.suspend")
+        q = cygcd.Queue("test.suspend")
         results = []
 
         q.suspend()
@@ -457,7 +457,7 @@ class TestSuspendResume:
 
     def test_multiple_suspend_resume(self):
         """Test that suspend/resume must be balanced."""
-        q = pygcd.Queue("test.multi_suspend")
+        q = cygcd.Queue("test.multi_suspend")
         results = []
 
         q.suspend()
@@ -478,7 +478,7 @@ class TestTimer:
 
     def test_create_timer(self):
         """Test creating a timer."""
-        timer = pygcd.Timer(1.0, lambda: None)
+        timer = cygcd.Timer(1.0, lambda: None)
         assert timer is not None
         assert not timer.is_cancelled
         timer.cancel()
@@ -492,7 +492,7 @@ class TestTimer:
             with lock:
                 results.append(time.time())
 
-        timer = pygcd.Timer(0.1, handler)
+        timer = cygcd.Timer(0.1, handler)
         timer.start()
 
         time.sleep(0.35)
@@ -509,7 +509,7 @@ class TestTimer:
         def handler():
             results.append(1)
 
-        timer = pygcd.Timer(0.0, handler, repeating=False, start_delay=0.05)
+        timer = cygcd.Timer(0.0, handler, repeating=False, start_delay=0.05)
         timer.start()
 
         time.sleep(0.2)
@@ -522,7 +522,7 @@ class TestTimer:
         """Test cancelling a timer."""
         results = []
 
-        timer = pygcd.Timer(0.05, lambda: results.append(1))
+        timer = cygcd.Timer(0.05, lambda: results.append(1))
         timer.start()
 
         time.sleep(0.12)
@@ -536,7 +536,7 @@ class TestTimer:
 
     def test_timer_with_queue(self):
         """Test timer with explicit queue."""
-        q = pygcd.Queue("test.timer_queue")
+        q = cygcd.Queue("test.timer_queue")
         results = []
         lock = threading.Lock()
 
@@ -544,7 +544,7 @@ class TestTimer:
             with lock:
                 results.append(1)
 
-        timer = pygcd.Timer(0.05, handler, queue=q)
+        timer = cygcd.Timer(0.05, handler, queue=q)
         timer.start()
 
         time.sleep(0.15)
@@ -560,7 +560,7 @@ class TestTimer:
         def handler():
             results.append(time.time() - start)
 
-        timer = pygcd.Timer(0.5, handler, start_delay=0.2, repeating=False)
+        timer = cygcd.Timer(0.5, handler, start_delay=0.2, repeating=False)
         timer.start()
 
         time.sleep(0.4)
@@ -571,7 +571,7 @@ class TestTimer:
 
     def test_timer_leeway(self):
         """Test timer with leeway (should not error)."""
-        timer = pygcd.Timer(0.1, lambda: None, leeway=0.05)
+        timer = cygcd.Timer(0.1, lambda: None, leeway=0.05)
         timer.start()
         time.sleep(0.05)
         timer.cancel()
@@ -586,7 +586,7 @@ class TestTimer:
                 results.append(time.time())
 
         # Start with fast interval
-        timer = pygcd.Timer(0.05, handler)
+        timer = cygcd.Timer(0.05, handler)
         timer.start()
 
         time.sleep(0.15)
@@ -605,11 +605,11 @@ class TestTimer:
     def test_timer_raises_on_non_callable(self):
         """Test timer raises TypeError for non-callable."""
         with pytest.raises(TypeError):
-            pygcd.Timer(0.1, "not callable")
+            cygcd.Timer(0.1, "not callable")
 
     def test_timer_cannot_restart_cancelled(self):
         """Test that cancelled timer cannot be restarted."""
-        timer = pygcd.Timer(0.1, lambda: None)
+        timer = cygcd.Timer(0.1, lambda: None)
         timer.cancel()
         with pytest.raises(RuntimeError):
             timer.start()
@@ -620,15 +620,15 @@ class TestQueueQOS:
 
     def test_queue_with_qos(self):
         """Test creating queue with QOS class."""
-        q = pygcd.Queue("test.qos", qos=pygcd.QOS_CLASS_UTILITY)
+        q = cygcd.Queue("test.qos", qos=cygcd.QOS_CLASS_UTILITY)
         assert q is not None
         assert q.label == "test.qos"
 
     def test_queue_with_qos_and_priority(self):
         """Test creating queue with QOS and relative priority."""
-        q = pygcd.Queue(
+        q = cygcd.Queue(
             "test.qos_priority",
-            qos=pygcd.QOS_CLASS_USER_INITIATED,
+            qos=cygcd.QOS_CLASS_USER_INITIATED,
             relative_priority=-5,
         )
         results = []
@@ -637,8 +637,8 @@ class TestQueueQOS:
 
     def test_queue_concurrent_with_qos(self):
         """Test concurrent queue with QOS."""
-        q = pygcd.Queue(
-            "test.concurrent_qos", concurrent=True, qos=pygcd.QOS_CLASS_BACKGROUND
+        q = cygcd.Queue(
+            "test.concurrent_qos", concurrent=True, qos=cygcd.QOS_CLASS_BACKGROUND
         )
         results = []
         lock = threading.Lock()
@@ -651,8 +651,8 @@ class TestQueueQOS:
 
     def test_queue_target(self):
         """Test queue with target queue."""
-        parent = pygcd.Queue("parent")
-        child = pygcd.Queue("child", target=parent)
+        parent = cygcd.Queue("parent")
+        child = cygcd.Queue("child", target=parent)
         results = []
 
         child.run_sync(lambda: results.append(1))
@@ -660,8 +660,8 @@ class TestQueueQOS:
 
     def test_queue_set_target(self):
         """Test setting target queue after creation."""
-        parent = pygcd.Queue("parent")
-        child = pygcd.Queue("child")
+        parent = cygcd.Queue("parent")
+        child = cygcd.Queue("child")
 
         child.set_target_queue(parent)
         results = []
@@ -671,9 +671,9 @@ class TestQueueQOS:
 
     def test_queue_hierarchy(self):
         """Test queue hierarchy with multiple levels."""
-        root = pygcd.Queue("root")
-        level1 = pygcd.Queue("level1", target=root)
-        level2 = pygcd.Queue("level2", target=level1)
+        root = cygcd.Queue("root")
+        level1 = cygcd.Queue("level1", target=root)
+        level2 = cygcd.Queue("level2", target=level1)
 
         results = []
         level2.run_sync(lambda: results.append(1))
@@ -685,10 +685,10 @@ class TestProcessEventConstants:
 
     def test_proc_constants(self):
         """Test process event constants are defined."""
-        assert pygcd.PROC_EXIT == 0x80000000
-        assert pygcd.PROC_FORK == 0x40000000
-        assert pygcd.PROC_EXEC == 0x20000000
-        assert pygcd.PROC_SIGNAL == 0x08000000
+        assert cygcd.PROC_EXIT == 0x80000000
+        assert cygcd.PROC_FORK == 0x40000000
+        assert cygcd.PROC_EXEC == 0x20000000
+        assert cygcd.PROC_SIGNAL == 0x08000000
 
 
 class TestSignalSource:
@@ -699,7 +699,7 @@ class TestSignalSource:
         # Use SIGUSR1 which is safe to handle
         old_handler = signal.signal(signal.SIGUSR1, signal.SIG_IGN)
         try:
-            source = pygcd.SignalSource(signal.SIGUSR1, lambda: None)
+            source = cygcd.SignalSource(signal.SIGUSR1, lambda: None)
             assert source is not None
             assert source.signal == signal.SIGUSR1
             assert not source.is_cancelled
@@ -718,7 +718,7 @@ class TestSignalSource:
 
         old_handler = signal.signal(signal.SIGUSR1, signal.SIG_IGN)
         try:
-            source = pygcd.SignalSource(signal.SIGUSR1, handler)
+            source = cygcd.SignalSource(signal.SIGUSR1, handler)
             source.start()
 
             # Send signal to self
@@ -734,7 +734,7 @@ class TestSignalSource:
         """Test cancelling a signal source."""
         old_handler = signal.signal(signal.SIGUSR2, signal.SIG_IGN)
         try:
-            source = pygcd.SignalSource(signal.SIGUSR2, lambda: None)
+            source = cygcd.SignalSource(signal.SIGUSR2, lambda: None)
             source.start()
             source.cancel()
             assert source.is_cancelled
@@ -743,12 +743,12 @@ class TestSignalSource:
 
     def test_signal_source_with_queue(self):
         """Test signal source with explicit queue."""
-        q = pygcd.Queue("signal.queue")
+        q = cygcd.Queue("signal.queue")
         results = []
 
         old_handler = signal.signal(signal.SIGUSR1, signal.SIG_IGN)
         try:
-            source = pygcd.SignalSource(
+            source = cygcd.SignalSource(
                 signal.SIGUSR1, lambda: results.append(1), queue=q
             )
             source.start()
@@ -764,7 +764,7 @@ class TestSignalSource:
     def test_signal_source_raises_on_non_callable(self):
         """Test signal source raises TypeError for non-callable."""
         with pytest.raises(TypeError):
-            pygcd.SignalSource(signal.SIGUSR1, "not callable")
+            cygcd.SignalSource(signal.SIGUSR1, "not callable")
 
 
 class TestReadSource:
@@ -774,7 +774,7 @@ class TestReadSource:
         """Test creating a read source."""
         r, w = os.pipe()
         try:
-            source = pygcd.ReadSource(r, lambda: None)
+            source = cygcd.ReadSource(r, lambda: None)
             assert source is not None
             assert source.fd == r
             assert not source.is_cancelled
@@ -794,7 +794,7 @@ class TestReadSource:
                 results.append(1)
 
         try:
-            source = pygcd.ReadSource(r, handler)
+            source = cygcd.ReadSource(r, handler)
             source.start()
 
             # Write data to trigger the source
@@ -811,7 +811,7 @@ class TestReadSource:
         """Test cancelling a read source."""
         r, w = os.pipe()
         try:
-            source = pygcd.ReadSource(r, lambda: None)
+            source = cygcd.ReadSource(r, lambda: None)
             source.start()
             source.cancel()
             assert source.is_cancelled
@@ -822,11 +822,11 @@ class TestReadSource:
     def test_read_source_with_queue(self):
         """Test read source with explicit queue."""
         r, w = os.pipe()
-        q = pygcd.Queue("read.queue")
+        q = cygcd.Queue("read.queue")
         results = []
 
         try:
-            source = pygcd.ReadSource(r, lambda: results.append(1), queue=q)
+            source = cygcd.ReadSource(r, lambda: results.append(1), queue=q)
             source.start()
 
             os.write(w, b"test")
@@ -843,7 +843,7 @@ class TestReadSource:
         r, w = os.pipe()
         try:
             with pytest.raises(TypeError):
-                pygcd.ReadSource(r, "not callable")
+                cygcd.ReadSource(r, "not callable")
         finally:
             os.close(r)
             os.close(w)
@@ -856,7 +856,7 @@ class TestWriteSource:
         """Test creating a write source."""
         r, w = os.pipe()
         try:
-            source = pygcd.WriteSource(w, lambda: None)
+            source = cygcd.WriteSource(w, lambda: None)
             assert source is not None
             assert source.fd == w
             assert not source.is_cancelled
@@ -876,7 +876,7 @@ class TestWriteSource:
                 results.append(1)
 
         try:
-            source = pygcd.WriteSource(w, handler)
+            source = cygcd.WriteSource(w, handler)
             source.start()
 
             # Pipe should be immediately writable
@@ -893,7 +893,7 @@ class TestWriteSource:
         """Test cancelling a write source."""
         r, w = os.pipe()
         try:
-            source = pygcd.WriteSource(w, lambda: None)
+            source = cygcd.WriteSource(w, lambda: None)
             source.start()
             source.cancel()
             assert source.is_cancelled
@@ -906,7 +906,7 @@ class TestWriteSource:
         r, w = os.pipe()
         try:
             with pytest.raises(TypeError):
-                pygcd.WriteSource(w, "not callable")
+                cygcd.WriteSource(w, "not callable")
         finally:
             os.close(r)
             os.close(w)
@@ -918,7 +918,7 @@ class TestProcessSource:
     def test_create_process_source(self):
         """Test creating a process source."""
         # Monitor our own process
-        source = pygcd.ProcessSource(os.getpid(), lambda: None)
+        source = cygcd.ProcessSource(os.getpid(), lambda: None)
         assert source is not None
         assert source.pid == os.getpid()
         assert not source.is_cancelled
@@ -926,8 +926,8 @@ class TestProcessSource:
 
     def test_process_source_with_events(self):
         """Test creating process source with specific events."""
-        source = pygcd.ProcessSource(
-            os.getpid(), lambda: None, events=pygcd.PROC_EXIT | pygcd.PROC_FORK
+        source = cygcd.ProcessSource(
+            os.getpid(), lambda: None, events=cygcd.PROC_EXIT | cygcd.PROC_FORK
         )
         assert source is not None
         source.cancel()
@@ -944,7 +944,7 @@ class TestProcessSource:
         # Start a subprocess that exits quickly
         proc = subprocess.Popen(["sleep", "0.1"])
 
-        source = pygcd.ProcessSource(proc.pid, handler, events=pygcd.PROC_EXIT)
+        source = cygcd.ProcessSource(proc.pid, handler, events=cygcd.PROC_EXIT)
         source.start()
 
         # Wait for process to exit
@@ -956,22 +956,22 @@ class TestProcessSource:
 
     def test_process_source_cancel(self):
         """Test cancelling a process source."""
-        source = pygcd.ProcessSource(os.getpid(), lambda: None)
+        source = cygcd.ProcessSource(os.getpid(), lambda: None)
         source.start()
         source.cancel()
         assert source.is_cancelled
 
     def test_process_source_with_queue(self):
         """Test process source with explicit queue."""
-        q = pygcd.Queue("proc.queue")
-        source = pygcd.ProcessSource(os.getpid(), lambda: None, queue=q)
+        q = cygcd.Queue("proc.queue")
+        source = cygcd.ProcessSource(os.getpid(), lambda: None, queue=q)
         assert source is not None
         source.cancel()
 
     def test_process_source_raises_on_non_callable(self):
         """Test process source raises TypeError for non-callable."""
         with pytest.raises(TypeError):
-            pygcd.ProcessSource(os.getpid(), "not callable")
+            cygcd.ProcessSource(os.getpid(), "not callable")
 
 
 class TestInactiveQueues:
@@ -979,13 +979,13 @@ class TestInactiveQueues:
 
     def test_create_inactive_queue(self):
         """Test creating an inactive queue."""
-        q = pygcd.Queue("test.inactive", inactive=True)
+        q = cygcd.Queue("test.inactive", inactive=True)
         assert q is not None
         assert q.is_inactive is True
 
     def test_inactive_queue_does_not_execute(self):
         """Test that inactive queue doesn't execute tasks."""
-        q = pygcd.Queue("test.inactive_exec", inactive=True)
+        q = cygcd.Queue("test.inactive_exec", inactive=True)
         results = []
 
         q.run_async(lambda: results.append(1))
@@ -1003,7 +1003,7 @@ class TestInactiveQueues:
 
     def test_activate_inactive_queue(self):
         """Test activating an inactive queue."""
-        q = pygcd.Queue("test.activate", inactive=True)
+        q = cygcd.Queue("test.activate", inactive=True)
         assert q.is_inactive is True
 
         q.activate()
@@ -1015,13 +1015,13 @@ class TestInactiveQueues:
 
     def test_activate_non_inactive_raises(self):
         """Test that activating a non-inactive queue raises."""
-        q = pygcd.Queue("test.not_inactive")
+        q = cygcd.Queue("test.not_inactive")
         with pytest.raises(RuntimeError):
             q.activate()
 
     def test_inactive_concurrent_queue(self):
         """Test inactive concurrent queue."""
-        q = pygcd.Queue("test.inactive_concurrent", concurrent=True, inactive=True)
+        q = cygcd.Queue("test.inactive_concurrent", concurrent=True, inactive=True)
         assert q.is_inactive is True
 
         results = []
@@ -1044,22 +1044,22 @@ class TestData:
 
     def test_create_empty_data(self):
         """Test creating empty data."""
-        d = pygcd.Data()
+        d = cygcd.Data()
         assert len(d) == 0
         assert d.size == 0
         assert bytes(d) == b""
 
     def test_create_data_from_bytes(self):
         """Test creating data from bytes."""
-        d = pygcd.Data(b"hello world")
+        d = cygcd.Data(b"hello world")
         assert len(d) == 11
         assert d.size == 11
         assert bytes(d) == b"hello world"
 
     def test_data_concat(self):
         """Test concatenating data."""
-        d1 = pygcd.Data(b"hello ")
-        d2 = pygcd.Data(b"world")
+        d1 = cygcd.Data(b"hello ")
+        d2 = cygcd.Data(b"world")
         d3 = d1.concat(d2)
 
         assert len(d3) == 11
@@ -1067,8 +1067,8 @@ class TestData:
 
     def test_data_concat_with_empty(self):
         """Test concatenating with empty data."""
-        d1 = pygcd.Data(b"hello")
-        d2 = pygcd.Data()
+        d1 = cygcd.Data(b"hello")
+        d2 = cygcd.Data()
 
         d3 = d1.concat(d2)
         assert bytes(d3) == b"hello"
@@ -1078,7 +1078,7 @@ class TestData:
 
     def test_data_subrange(self):
         """Test creating subrange of data."""
-        d = pygcd.Data(b"hello world")
+        d = cygcd.Data(b"hello world")
         sub = d.subrange(0, 5)
 
         assert len(sub) == 5
@@ -1086,14 +1086,14 @@ class TestData:
 
     def test_data_subrange_middle(self):
         """Test subrange from middle of data."""
-        d = pygcd.Data(b"hello world")
+        d = cygcd.Data(b"hello world")
         sub = d.subrange(6, 5)
 
         assert bytes(sub) == b"world"
 
     def test_empty_data_subrange(self):
         """Test subrange of empty data."""
-        d = pygcd.Data()
+        d = cygcd.Data()
         sub = d.subrange(0, 0)
         assert len(sub) == 0
 
@@ -1111,7 +1111,7 @@ class TestAsyncIO:
 
         try:
             os.write(w, b"test data")
-            pygcd.read_async(r, 1024, handler)
+            cygcd.read_async(r, 1024, handler)
 
             time.sleep(0.2)
             assert len(results) == 1
@@ -1130,7 +1130,7 @@ class TestAsyncIO:
             results.append((remaining, error))
 
         try:
-            pygcd.write_async(w, b"test data", handler)
+            cygcd.write_async(w, b"test data", handler)
 
             time.sleep(0.2)
             assert len(results) == 1
@@ -1147,7 +1147,7 @@ class TestAsyncIO:
     def test_read_async_with_queue(self):
         """Test read_async with explicit queue."""
         r, w = os.pipe()
-        q = pygcd.Queue("io.queue")
+        q = cygcd.Queue("io.queue")
         results = []
 
         def handler(data, error):
@@ -1155,7 +1155,7 @@ class TestAsyncIO:
 
         try:
             os.write(w, b"queued read")
-            pygcd.read_async(r, 1024, handler, queue=q)
+            cygcd.read_async(r, 1024, handler, queue=q)
 
             time.sleep(0.2)
             assert len(results) == 1
@@ -1170,13 +1170,13 @@ class TestWorkloop:
 
     def test_create_workloop(self):
         """Test creating a workloop."""
-        wl = pygcd.Workloop("test.workloop")
+        wl = cygcd.Workloop("test.workloop")
         assert wl is not None
         assert wl.is_inactive is False
 
     def test_workloop_run_async(self):
         """Test async execution on workloop."""
-        wl = pygcd.Workloop("test.wl_async")
+        wl = cygcd.Workloop("test.wl_async")
         results = []
 
         wl.run_async(lambda: results.append(1))
@@ -1186,7 +1186,7 @@ class TestWorkloop:
 
     def test_workloop_run_sync(self):
         """Test sync execution on workloop."""
-        wl = pygcd.Workloop("test.wl_sync")
+        wl = cygcd.Workloop("test.wl_sync")
         results = []
 
         wl.run_sync(lambda: results.append(1))
@@ -1194,12 +1194,12 @@ class TestWorkloop:
 
     def test_create_inactive_workloop(self):
         """Test creating inactive workloop."""
-        wl = pygcd.Workloop("test.wl_inactive", inactive=True)
+        wl = cygcd.Workloop("test.wl_inactive", inactive=True)
         assert wl.is_inactive is True
 
     def test_activate_workloop(self):
         """Test activating an inactive workloop."""
-        wl = pygcd.Workloop("test.wl_activate", inactive=True)
+        wl = cygcd.Workloop("test.wl_activate", inactive=True)
         assert wl.is_inactive is True
 
         # Cannot submit work to inactive workloop (Apple docs: undefined behavior)
@@ -1216,13 +1216,13 @@ class TestWorkloop:
 
     def test_activate_non_inactive_workloop_raises(self):
         """Test that activating non-inactive workloop raises."""
-        wl = pygcd.Workloop("test.wl_not_inactive")
+        wl = cygcd.Workloop("test.wl_not_inactive")
         with pytest.raises(RuntimeError):
             wl.activate()
 
     def test_workloop_raises_on_non_callable(self):
         """Test workloop raises TypeError for non-callable."""
-        wl = pygcd.Workloop("test.wl_error")
+        wl = cygcd.Workloop("test.wl_error")
         with pytest.raises(TypeError):
             wl.run_async("not callable")
 
@@ -1232,5 +1232,5 @@ class TestIOConstants:
 
     def test_io_constants(self):
         """Test I/O type constants are defined."""
-        assert pygcd.IO_STREAM == 0
-        assert pygcd.IO_RANDOM == 1
+        assert cygcd.IO_STREAM == 0
+        assert cygcd.IO_RANDOM == 1
