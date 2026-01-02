@@ -1,2 +1,3 @@
 # pygcd
-Towards a wrapper of grand central dispatch
+
+Towards a cython wrapper of grand central dispatch

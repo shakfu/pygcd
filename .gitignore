@@ -1,3 +1,4 @@
+.DS_Store
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
@@ -48,7 +49,7 @@ coverage.xml
 *.cover
 *.py.cover
 .hypothesis/
-.pytest_cache/
+.*_cache/
 cover/
 
 # Translations
@@ -205,3 +206,9 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# agents
+.claude
+CLAUDE.md
+AGENTS.md
+GEMINI.md
