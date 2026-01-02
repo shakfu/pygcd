@@ -1,32 +1,42 @@
 
 
-.PHONY: all sync build rebuild test clean distclean wheel sdist help
+.PHONY: all sync build rebuild test clean distclean wheel sdist help \
+		format lint typecheck
 
 # Default target
 all: build
 
 # Sync environment (initial setup, installs dependencies + package)
 sync:
-	uv sync
+	@uv sync
 
 # Build/rebuild the extension after code changes
 build:
-	uv sync --reinstall-package pygcd
+	@uv sync --reinstall-package pygcd
 
 # Alias for build
 rebuild: build
 
 # Run tests
 test:
-	uv run pytest tests/ -v
+	@uv run pytest tests/ -v
+
+format:
+	@uv run ruff format src/ tests/
+
+lint:
+	@uv run ruff check --fix src/ tests/
+
+typecheck:
+	@uv run mypy src/
 
 # Build wheel
 wheel:
-	uv build --wheel
+	@uv build --wheel
 
 # Build source distribution
 sdist:
-	uv build --sdist
+	@uv build --sdist
 
 # Clean build artifacts
 clean:
@@ -51,6 +61,9 @@ help:
 	@echo "  build     - Rebuild extension after code changes"
 	@echo "  rebuild   - Alias for build"
 	@echo "  test      - Run tests"
+	@echo "  format    - Run ruff format"
+	@echo "  lint      - Run ruff check --fix"
+	@echo "  typecheck - Run mypy check"
 	@echo "  wheel     - Build wheel distribution"
 	@echo "  sdist     - Build source distribution"
 	@echo "  clean     - Remove build artifacts"

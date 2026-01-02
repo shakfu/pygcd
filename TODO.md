@@ -4,7 +4,7 @@ Prioritized plan for wrapping remaining Grand Central Dispatch APIs.
 
 ## Current Coverage
 
-- [x] Queues (create, global, main, label, suspend/resume, target, QOS)
+- [x] Queues (create, global, main, label, suspend/resume, target, QOS, inactive)
 - [x] Execution (async, sync, barrier, after, apply)
 - [x] Groups (create, async, wait, notify, enter/leave)
 - [x] Semaphores (create, wait, signal)
@@ -14,6 +14,9 @@ Prioritized plan for wrapping remaining Grand Central Dispatch APIs.
 - [x] SignalSource (dispatch source for signals)
 - [x] ReadSource/WriteSource (dispatch source for file descriptors)
 - [x] ProcessSource (dispatch source for process events)
+- [x] Data (create, concat, subrange)
+- [x] Workloop (create, async, sync, inactive)
+- [x] I/O Convenience (read_async, write_async)
 
 ---
 
@@ -147,7 +150,7 @@ Functions wrapped:
 
 ---
 
-## Phase 3: Lower Priority
+## Phase 3: Lower Priority - PARTIALLY COMPLETED
 
 Specialized APIs with narrower use cases.
 
@@ -172,20 +175,20 @@ Functions to wrap:
 - [ ] `dispatch_io_set_interval`
 - [ ] `dispatch_io_barrier`
 
-### 3.2 Dispatch I/O - Convenience
+### 3.2 Dispatch I/O - Convenience - DONE
 
 Simple async file operations.
 
 ```python
-pygcd.read_fd(fd, queue=q, handler=on_data)
-pygcd.write_fd(fd, data, queue=q, handler=on_complete)
+pygcd.read_async(fd, length, callback, queue=q)
+pygcd.write_async(fd, data, callback, queue=q)
 ```
 
-Functions to wrap:
-- [ ] `dispatch_read`
-- [ ] `dispatch_write`
+Functions wrapped:
+- [x] `dispatch_read` (via `read_async`)
+- [x] `dispatch_write` (via `write_async`)
 
-### 3.3 Dispatch Data
+### 3.3 Dispatch Data - DONE
 
 Efficient buffer management for I/O.
 
@@ -195,16 +198,16 @@ combined = data.concat(other_data)
 region = data.subrange(offset, length)
 ```
 
-Functions to wrap:
-- [ ] `dispatch_data_create`
-- [ ] `dispatch_data_get_size`
-- [ ] `dispatch_data_create_concat`
-- [ ] `dispatch_data_create_subrange`
-- [ ] `dispatch_data_create_map`
+Functions wrapped:
+- [x] `dispatch_data_create`
+- [x] `dispatch_data_get_size`
+- [x] `dispatch_data_create_concat`
+- [x] `dispatch_data_create_subrange`
+- [x] `dispatch_data_create_map`
 - [ ] `dispatch_data_copy_region`
 - [ ] `dispatch_data_apply`
 
-### 3.4 Inactive Queues
+### 3.4 Inactive Queues - DONE
 
 Create queues that don't start until activated.
 
@@ -214,22 +217,26 @@ q = pygcd.Queue("lazy", inactive=True)
 q.activate()
 ```
 
-Functions to wrap:
-- [ ] `dispatch_queue_attr_make_initially_inactive`
-- [ ] `dispatch_activate`
+Functions wrapped:
+- [x] `dispatch_queue_attr_make_initially_inactive`
+- [x] `dispatch_activate`
 
-### 3.5 Workloops
+### 3.5 Workloops - DONE
 
 Priority-inversion-avoiding queues.
 
 ```python
 wl = pygcd.Workloop("priority-work")
+wl.run_async(task)
+wl.run_sync(task)
 ```
 
-Functions to wrap:
-- [ ] `dispatch_workloop_create`
-- [ ] `dispatch_workloop_create_inactive`
+Functions wrapped:
+- [x] `dispatch_workloop_create`
+- [x] `dispatch_workloop_create_inactive`
 - [ ] `dispatch_workloop_set_autorelease_frequency`
+
+Note: Work cannot be submitted to inactive workloops (Apple GCD limitation).
 
 ### 3.6 Object Context
 

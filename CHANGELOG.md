@@ -46,15 +46,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `target` parameter - Set target queue at creation
   - `set_target_queue(queue)` method - Set target queue after creation
 
+#### Inactive Queues
+
+- `Queue` now supports inactive state
+  - `inactive` parameter - Create queue in inactive state
+  - `activate()` method - Activate an inactive queue
+  - `is_inactive` property - Check if queue is inactive
+
+#### Dispatch Data
+
+- `Data` - Efficient immutable buffer for I/O operations
+  - `Data(bytes)` - Create from bytes
+  - `concat(other)` - Concatenate two Data objects
+  - `subrange(offset, length)` - Extract a subrange
+  - `size` property - Get data size
+  - `__len__` / `__bytes__` - Python protocol support
+
+#### Dispatch I/O Convenience
+
+- `read_async(fd, length, callback, queue)` - Asynchronous file read
+- `write_async(fd, data, callback, queue)` - Asynchronous file write
+
+#### Workloops
+
+- `Workloop` - Priority-inversion-avoiding execution
+  - `run_async(func)` - Asynchronous task execution
+  - `run_sync(func)` - Synchronous task execution
+  - `activate()` - Activate an inactive workloop
+  - `is_inactive` property - Check activation status
+  - Note: Work cannot be submitted to inactive workloops
+
 #### Constants
 
 - Process event flags: `PROC_EXIT`, `PROC_FORK`, `PROC_EXEC`, `PROC_SIGNAL`
+- I/O type constants: `IO_STREAM`, `IO_RANDOM`
 
 #### Examples
 
 - `signal_source.py` - Unix signal handling with dispatch sources
 - `fd_source.py` - File descriptor I/O monitoring
 - `process_source.py` - Process lifecycle monitoring
+- `inactive_queue.py` - Creating and activating inactive queues
+- `dispatch_data.py` - Buffer management with Data objects
+- `async_io.py` - Asynchronous file read/write operations
+- `workloop.py` - Priority-inversion-avoiding workloops
 
 ---
 

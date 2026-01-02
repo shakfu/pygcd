@@ -23,10 +23,14 @@ from pygcd._core import (
     ReadSource,
     WriteSource,
     ProcessSource,
+    Data,
+    Workloop,
     # Functions
     apply,
     time_from_now,
     walltime,
+    read_async,
+    write_async,
     # Time constants
     DISPATCH_TIME_NOW,
     DISPATCH_TIME_FOREVER,
@@ -52,6 +56,9 @@ from pygcd._core import (
     PROC_FORK,
     PROC_EXEC,
     PROC_SIGNAL,
+    # I/O type constants
+    IO_STREAM,
+    IO_RANDOM,
 )
 
 __all__ = [
@@ -65,10 +72,14 @@ __all__ = [
     "ReadSource",
     "WriteSource",
     "ProcessSource",
+    "Data",
+    "Workloop",
     # Functions
     "apply",
     "time_from_now",
     "walltime",
+    "read_async",
+    "write_async",
     # Time constants
     "DISPATCH_TIME_NOW",
     "DISPATCH_TIME_FOREVER",
@@ -94,5 +105,8 @@ __all__ = [
     "PROC_FORK",
     "PROC_EXEC",
     "PROC_SIGNAL",
+    # I/O type constants
+    "IO_STREAM",
+    "IO_RANDOM",
 ]
 __version__ = "0.2.0"

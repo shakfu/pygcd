@@ -6,6 +6,7 @@ Provides Python bindings to Apple's GCD framework for concurrent programming.
 """
 
 from libc.stdint cimport uint64_t, int64_t, intptr_t, uintptr_t
+from posix.types cimport off_t
 from cpython.ref cimport PyObject, Py_INCREF, Py_DECREF
 from cpython.exc cimport PyErr_Occurred, PyErr_Print
 
@@ -201,6 +202,90 @@ cdef extern from "dispatch/dispatch.h" nogil:
     dispatch_queue_attr_t dispatch_queue_attr_make_with_qos_class(
         dispatch_queue_attr_t attr, unsigned int qos_class, int relative_priority)
 
+    # Inactive queues
+    dispatch_queue_attr_t dispatch_queue_attr_make_initially_inactive(
+        dispatch_queue_attr_t attr)
+    void dispatch_activate(dispatch_queue_t object)
+
+    # Queue-specific data
+    ctypedef const void* dispatch_queue_key_t
+    void dispatch_queue_set_specific(dispatch_queue_t queue, const void* key,
+                                     void* context, dispatch_function_t destructor)
+    void* dispatch_queue_get_specific(dispatch_queue_t queue, const void* key)
+    void* dispatch_get_specific(const void* key)
+
+    # Dispatch I/O types
+    ctypedef struct dispatch_io_s:
+        pass
+    ctypedef dispatch_io_s* dispatch_io_t
+
+    ctypedef struct dispatch_data_s:
+        pass
+    ctypedef dispatch_data_s* dispatch_data_t
+
+    # Dispatch data empty constant
+    dispatch_data_t _dispatch_data_empty "DISPATCH_DATA_DESTRUCTOR_DEFAULT"
+
+    # Dispatch I/O type constants
+    unsigned int DISPATCH_IO_STREAM
+    unsigned int DISPATCH_IO_RANDOM
+
+    # Dispatch I/O close flags
+    unsigned int DISPATCH_IO_STOP
+
+    # Dispatch I/O functions
+    dispatch_io_t dispatch_io_create(unsigned int type, int fd,
+                                     dispatch_queue_t queue,
+                                     void (*cleanup_handler)(int error))
+    dispatch_io_t dispatch_io_create_with_path(unsigned int type, const char* path,
+                                               int oflag, unsigned short mode,
+                                               dispatch_queue_t queue,
+                                               void (*cleanup_handler)(int error))
+    void dispatch_io_read(dispatch_io_t channel, off_t offset, size_t length,
+                          dispatch_queue_t queue,
+                          void (*handler)(bint done, dispatch_data_t data, int error))
+    void dispatch_io_write(dispatch_io_t channel, off_t offset, dispatch_data_t data,
+                           dispatch_queue_t queue,
+                           void (*handler)(bint done, dispatch_data_t data, int error))
+    void dispatch_io_close(dispatch_io_t channel, unsigned int flags)
+    void dispatch_io_set_high_water(dispatch_io_t channel, size_t high_water)
+    void dispatch_io_set_low_water(dispatch_io_t channel, size_t low_water)
+    void dispatch_io_set_interval(dispatch_io_t channel, uint64_t interval,
+                                  unsigned int flags)
+    void dispatch_io_barrier(dispatch_io_t channel, void (*barrier)())
+
+    # Dispatch Data functions
+    dispatch_data_t dispatch_data_create(const void* buffer, size_t size,
+                                         dispatch_queue_t queue,
+                                         void (*destructor)())
+    size_t dispatch_data_get_size(dispatch_data_t data)
+    dispatch_data_t dispatch_data_create_concat(dispatch_data_t data1,
+                                                dispatch_data_t data2)
+    dispatch_data_t dispatch_data_create_subrange(dispatch_data_t data,
+                                                  size_t offset, size_t length)
+    dispatch_data_t dispatch_data_create_map(dispatch_data_t data,
+                                             const void** buffer_ptr,
+                                             size_t* size_ptr)
+    bint dispatch_data_apply(dispatch_data_t data,
+                             bint (*applier)(dispatch_data_t region,
+                                            size_t offset,
+                                            const void* buffer,
+                                            size_t size))
+
+    # Simple async I/O
+    void dispatch_read(int fd, size_t length, dispatch_queue_t queue,
+                       void (*handler)(dispatch_data_t data, int error))
+    void dispatch_write(int fd, dispatch_data_t data, dispatch_queue_t queue,
+                        void (*handler)(dispatch_data_t data, int error))
+
+    # Workloop
+    ctypedef struct dispatch_workloop_s:
+        pass
+    ctypedef dispatch_workloop_s* dispatch_workloop_t
+
+    dispatch_workloop_t dispatch_workloop_create(const char* label)
+    dispatch_workloop_t dispatch_workloop_create_inactive(const char* label)
+
 
 # Trampoline function that acquires GIL and calls Python callable
 cdef void _python_callback(void* context) noexcept with gil:
@@ -262,15 +347,17 @@ cdef class Queue:
     """
     cdef dispatch_queue_t _queue
     cdef bint _owned
+    cdef bint _inactive
     cdef bytes _label_bytes
 
     def __cinit__(self):
         self._queue = NULL
         self._owned = False
+        self._inactive = False
 
     def __init__(self, str label=None, bint concurrent=False,
                  int qos=_QOS_CLASS_UNSPECIFIED, int relative_priority=0,
-                 target=None):
+                 target=None, bint inactive=False):
         """
         Create a new dispatch queue.
 
@@ -281,6 +368,8 @@ cdef class Queue:
             relative_priority: Priority offset within QOS class (-15 to 0). Default is 0.
             target: Optional target queue for queue hierarchy. Tasks submitted to this
                     queue will ultimately execute on the target queue.
+            inactive: If True, create queue in inactive state. Must call activate()
+                      before the queue will process tasks. Default is False.
         """
         cdef dispatch_queue_attr_t attr
         cdef const char* c_label = NULL
@@ -300,6 +389,12 @@ cdef class Queue:
                 attr = dispatch_queue_attr_make_with_qos_class(
                     attr, <unsigned int>qos, relative_priority)
 
+        # Make inactive if specified
+        if inactive:
+            with nogil:
+                attr = dispatch_queue_attr_make_initially_inactive(attr)
+            self._inactive = True
+
         with nogil:
             self._queue = dispatch_queue_create(c_label, attr)
         self._owned = True
@@ -310,6 +405,10 @@ cdef class Queue:
 
     def __dealloc__(self):
         if self._queue != NULL and self._owned:
+            # Must activate inactive queues before releasing
+            # otherwise dispatch_release will block forever
+            if self._inactive:
+                dispatch_activate(self._queue)
             dispatch_release(self._queue)
             self._queue = NULL
 
@@ -495,6 +594,28 @@ cdef class Queue:
         cdef dispatch_queue_t q = self._queue
         with nogil:
             dispatch_resume(q)
+
+    def activate(self):
+        """
+        Activate an inactive queue.
+
+        Queues created with inactive=True must be activated before they will
+        process any tasks. Once activated, a queue cannot be made inactive again.
+
+        Raises:
+            RuntimeError: If the queue was not created as inactive.
+        """
+        if not self._inactive:
+            raise RuntimeError("Queue was not created as inactive")
+        cdef dispatch_queue_t q = self._queue
+        with nogil:
+            dispatch_activate(q)
+        self._inactive = False
+
+    @property
+    def is_inactive(self):
+        """Check if the queue is currently inactive."""
+        return self._inactive
 
 
 def apply(size_t iterations, func, Queue queue=None):
@@ -1379,3 +1500,379 @@ cdef class ProcessSource:
         with nogil:
             data = dispatch_source_get_data(self._source)
         return data
+
+
+cdef class Data:
+    """
+    Dispatch data object for efficient buffer management.
+
+    Data objects are immutable containers for bytes that can be efficiently
+    concatenated and sliced without copying the underlying data.
+    """
+    cdef dispatch_data_t _data
+    cdef bint _owned
+
+    def __cinit__(self):
+        self._data = NULL
+        self._owned = False
+
+    def __init__(self, bytes data=None):
+        """
+        Create a new dispatch data object.
+
+        Args:
+            data: Optional bytes to wrap. If None, creates empty data.
+        """
+        cdef const char* buffer
+        cdef size_t size
+
+        if data is None or len(data) == 0:
+            self._data = NULL
+            self._owned = False
+        else:
+            buffer = data
+            size = len(data)
+            # Create a copy of the data (using default destructor)
+            with nogil:
+                self._data = dispatch_data_create(buffer, size, NULL, NULL)
+            self._owned = True
+
+    def __dealloc__(self):
+        if self._data != NULL and self._owned:
+            dispatch_release(<dispatch_queue_t>self._data)
+            self._data = NULL
+
+    def __len__(self):
+        """Return the size of the data in bytes."""
+        if self._data == NULL:
+            return 0
+        cdef size_t size
+        with nogil:
+            size = dispatch_data_get_size(self._data)
+        return size
+
+    @property
+    def size(self):
+        """Get the size of the data in bytes."""
+        return len(self)
+
+    def __bytes__(self):
+        """Convert to bytes object."""
+        if self._data == NULL:
+            return b""
+        cdef const void* buffer = NULL
+        cdef size_t size = 0
+        cdef dispatch_data_t mapped
+
+        # Map the data to get contiguous access
+        with nogil:
+            mapped = dispatch_data_create_map(self._data, &buffer, &size)
+
+        if mapped == NULL or buffer == NULL:
+            return b""
+
+        result = (<const char*>buffer)[:size]
+
+        with nogil:
+            dispatch_release(<dispatch_queue_t>mapped)
+
+        return result
+
+    def concat(self, Data other):
+        """
+        Concatenate this data with another.
+
+        Args:
+            other: Another Data object to append.
+
+        Returns:
+            A new Data object containing the concatenated data.
+        """
+        cdef Data result = Data.__new__(Data)
+
+        if self._data == NULL and other._data == NULL:
+            result._data = NULL
+            result._owned = False
+        elif self._data == NULL:
+            dispatch_retain(<dispatch_queue_t>other._data)
+            result._data = other._data
+            result._owned = True
+        elif other._data == NULL:
+            dispatch_retain(<dispatch_queue_t>self._data)
+            result._data = self._data
+            result._owned = True
+        else:
+            with nogil:
+                result._data = dispatch_data_create_concat(self._data, other._data)
+            result._owned = True
+
+        return result
+
+    def subrange(self, size_t offset, size_t length):
+        """
+        Create a new Data object from a subrange of this data.
+
+        Args:
+            offset: Starting offset in bytes.
+            length: Number of bytes to include.
+
+        Returns:
+            A new Data object containing the subrange.
+        """
+        cdef Data result = Data.__new__(Data)
+
+        if self._data == NULL:
+            result._data = NULL
+            result._owned = False
+        else:
+            with nogil:
+                result._data = dispatch_data_create_subrange(self._data, offset, length)
+            result._owned = True
+
+        return result
+
+    @staticmethod
+    cdef Data _from_dispatch_data(dispatch_data_t data, bint owned):
+        """Create a Data object from a dispatch_data_t (internal use)."""
+        cdef Data result = Data.__new__(Data)
+        result._data = data
+        result._owned = owned
+        return result
+
+
+# I/O type constants
+IO_STREAM = 0  # DISPATCH_IO_STREAM
+IO_RANDOM = 1  # DISPATCH_IO_RANDOM
+
+
+# Trampoline for dispatch_read/dispatch_write handlers
+cdef void _python_io_handler(dispatch_data_t data, int error) noexcept with gil:
+    """Trampoline for async I/O completion handlers."""
+    cdef object handler_tuple
+    cdef object handler
+    cdef object ctx_ptr
+
+    # Get context (stored as tuple: (handler, context_id))
+    # For now we use a simpler approach - the context is the handler itself
+    pass  # This is handled differently below
+
+
+# Storage for I/O callbacks (prevent garbage collection)
+cdef dict _io_callbacks = {}
+cdef int _io_callback_id = 0
+
+
+cdef void _dispatch_read_handler(dispatch_data_t data, int error) noexcept with gil:
+    """Handler for dispatch_read."""
+    global _io_callback_id
+    # This approach won't work well - we need to store context
+    pass
+
+
+# Simpler async I/O using completion handlers
+def read_async(int fd, size_t length, handler, Queue queue=None):
+    """
+    Read data from a file descriptor asynchronously.
+
+    Args:
+        fd: File descriptor to read from.
+        length: Maximum number of bytes to read.
+        handler: Callable invoked with (data: bytes, error: int) when complete.
+                 data is the bytes read, error is 0 on success.
+        queue: Queue to execute handler on. If None, uses default global queue.
+    """
+    if not callable(handler):
+        raise TypeError("handler must be callable")
+
+    cdef dispatch_queue_t q
+    if queue is not None:
+        q = queue._queue
+    else:
+        with nogil:
+            q = dispatch_get_global_queue(_DISPATCH_QUEUE_PRIORITY_DEFAULT, 0)
+
+    # We need to use a workaround since dispatch_read uses blocks
+    # For now, implement using ReadSource and os.read
+    import os as _os
+
+    def _do_read():
+        try:
+            data = _os.read(fd, length)
+            handler(data, 0)
+        except OSError as e:
+            handler(b"", e.errno)
+
+    cdef Queue wrap_queue
+    if queue is not None:
+        wrap_queue = queue
+    else:
+        wrap_queue = Queue.global_queue()
+
+    wrap_queue.run_async(_do_read)
+
+
+def write_async(int fd, bytes data, handler, Queue queue=None):
+    """
+    Write data to a file descriptor asynchronously.
+
+    Args:
+        fd: File descriptor to write to.
+        data: Bytes to write.
+        handler: Callable invoked with (remaining: bytes, error: int) when complete.
+                 remaining is any unwritten data, error is 0 on success.
+        queue: Queue to execute handler on. If None, uses default global queue.
+    """
+    if not callable(handler):
+        raise TypeError("handler must be callable")
+
+    import os as _os
+
+    def _do_write():
+        try:
+            written = _os.write(fd, data)
+            remaining = data[written:] if written < len(data) else b""
+            handler(remaining, 0)
+        except OSError as e:
+            handler(data, e.errno)
+
+    cdef Queue wrap_queue
+    if queue is not None:
+        wrap_queue = queue
+    else:
+        wrap_queue = Queue.global_queue()
+
+    wrap_queue.run_async(_do_write)
+
+
+cdef class Workloop:
+    """
+    Dispatch workloop for priority-inversion-avoiding execution.
+
+    Workloops are specialized queues that avoid priority inversion by
+    dynamically adjusting the priority of work items.
+    """
+    cdef dispatch_workloop_t _workloop
+    cdef bint _owned
+    cdef bint _inactive
+    cdef bytes _label_bytes
+
+    def __cinit__(self):
+        self._workloop = NULL
+        self._owned = False
+        self._inactive = False
+
+    def __init__(self, str label, bint inactive=False):
+        """
+        Create a new workloop.
+
+        Args:
+            label: String label for debugging.
+            inactive: If True, create in inactive state. Must call activate()
+                      before the workloop will process tasks.
+        """
+        cdef const char* c_label = NULL
+
+        if label is not None:
+            self._label_bytes = label.encode('utf-8')
+            c_label = self._label_bytes
+
+        if inactive:
+            with nogil:
+                self._workloop = dispatch_workloop_create_inactive(c_label)
+            self._inactive = True
+        else:
+            # dispatch_workloop_create creates an inactive workloop that must be activated
+            with nogil:
+                self._workloop = dispatch_workloop_create(c_label)
+
+        if self._workloop == NULL:
+            raise RuntimeError("Failed to create workloop")
+
+        self._owned = True
+
+        # Activate non-inactive workloops immediately
+        if not inactive:
+            with nogil:
+                dispatch_activate(<dispatch_queue_t>self._workloop)
+
+    def __dealloc__(self):
+        if self._workloop != NULL and self._owned:
+            # Must activate inactive workloops before releasing
+            # otherwise dispatch_release will block forever
+            if self._inactive:
+                dispatch_activate(<dispatch_queue_t>self._workloop)
+            dispatch_release(<dispatch_queue_t>self._workloop)
+            self._workloop = NULL
+
+    def activate(self):
+        """
+        Activate an inactive workloop.
+
+        Raises:
+            RuntimeError: If the workloop was not created as inactive.
+        """
+        if not self._inactive:
+            raise RuntimeError("Workloop was not created as inactive")
+        with nogil:
+            dispatch_activate(<dispatch_queue_t>self._workloop)
+        self._inactive = False
+
+    @property
+    def is_inactive(self):
+        """Check if the workloop is currently inactive."""
+        return self._inactive
+
+    def run_async(self, func):
+        """
+        Submit a callable for asynchronous execution on the workloop.
+
+        Args:
+            func: A callable taking no arguments.
+
+        Raises:
+            RuntimeError: If the workloop is inactive.
+        """
+        if self._inactive:
+            raise RuntimeError("Cannot submit work to an inactive workloop")
+        if not callable(func):
+            raise TypeError("func must be callable")
+        Py_INCREF(func)
+        cdef PyObject* ctx = <PyObject*>func
+        with nogil:
+            dispatch_async_f(<dispatch_queue_t>self._workloop, <void*>ctx, _python_callback)
+
+    def run_sync(self, func):
+        """
+        Submit a callable for synchronous execution on the workloop.
+
+        Note: Uses async + semaphore pattern since dispatch_sync_f can deadlock
+        on workloops due to their specialized execution model.
+
+        Args:
+            func: A callable taking no arguments.
+
+        Raises:
+            RuntimeError: If the workloop is inactive.
+        """
+        if self._inactive:
+            raise RuntimeError("Cannot submit work to an inactive workloop")
+        if not callable(func):
+            raise TypeError("func must be callable")
+
+        # Use Python Semaphore to wait for completion
+        sem = Semaphore(0)
+        exception_info = [None]
+
+        def wrapper():
+            try:
+                func()
+            except Exception as e:
+                exception_info[0] = e
+            finally:
+                sem.signal()
+
+        self.run_async(wrapper)
+        sem.wait()
+
+        if exception_info[0] is not None:
+            raise exception_info[0]

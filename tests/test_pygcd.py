@@ -415,6 +415,7 @@ class TestWalltime:
     def test_walltime_with_timestamp(self):
         """Test walltime with specific timestamp."""
         import time
+
         now = time.time()
         t = pygcd.walltime(timestamp=now)
         assert t > 0
@@ -492,7 +493,6 @@ class TestTimer:
                 results.append(time.time())
 
         timer = pygcd.Timer(0.1, handler)
-        start = time.time()
         timer.start()
 
         time.sleep(0.35)
@@ -626,18 +626,20 @@ class TestQueueQOS:
 
     def test_queue_with_qos_and_priority(self):
         """Test creating queue with QOS and relative priority."""
-        q = pygcd.Queue("test.qos_priority",
-                       qos=pygcd.QOS_CLASS_USER_INITIATED,
-                       relative_priority=-5)
+        q = pygcd.Queue(
+            "test.qos_priority",
+            qos=pygcd.QOS_CLASS_USER_INITIATED,
+            relative_priority=-5,
+        )
         results = []
         q.run_sync(lambda: results.append(1))
         assert results == [1]
 
     def test_queue_concurrent_with_qos(self):
         """Test concurrent queue with QOS."""
-        q = pygcd.Queue("test.concurrent_qos",
-                       concurrent=True,
-                       qos=pygcd.QOS_CLASS_BACKGROUND)
+        q = pygcd.Queue(
+            "test.concurrent_qos", concurrent=True, qos=pygcd.QOS_CLASS_BACKGROUND
+        )
         results = []
         lock = threading.Lock()
 
@@ -746,7 +748,9 @@ class TestSignalSource:
 
         old_handler = signal.signal(signal.SIGUSR1, signal.SIG_IGN)
         try:
-            source = pygcd.SignalSource(signal.SIGUSR1, lambda: results.append(1), queue=q)
+            source = pygcd.SignalSource(
+                signal.SIGUSR1, lambda: results.append(1), queue=q
+            )
             source.start()
 
             os.kill(os.getpid(), signal.SIGUSR1)
@@ -923,9 +927,7 @@ class TestProcessSource:
     def test_process_source_with_events(self):
         """Test creating process source with specific events."""
         source = pygcd.ProcessSource(
-            os.getpid(),
-            lambda: None,
-            events=pygcd.PROC_EXIT | pygcd.PROC_FORK
+            os.getpid(), lambda: None, events=pygcd.PROC_EXIT | pygcd.PROC_FORK
         )
         assert source is not None
         source.cancel()
@@ -970,3 +972,265 @@ class TestProcessSource:
         """Test process source raises TypeError for non-callable."""
         with pytest.raises(TypeError):
             pygcd.ProcessSource(os.getpid(), "not callable")
+
+
+class TestInactiveQueues:
+    """Tests for inactive queue feature."""
+
+    def test_create_inactive_queue(self):
+        """Test creating an inactive queue."""
+        q = pygcd.Queue("test.inactive", inactive=True)
+        assert q is not None
+        assert q.is_inactive is True
+
+    def test_inactive_queue_does_not_execute(self):
+        """Test that inactive queue doesn't execute tasks."""
+        q = pygcd.Queue("test.inactive_exec", inactive=True)
+        results = []
+
+        q.run_async(lambda: results.append(1))
+        time.sleep(0.1)
+
+        # Task should not have run yet
+        assert results == []
+
+        # Activate and wait
+        q.activate()
+        q.run_sync(lambda: None)
+
+        assert results == [1]
+        assert q.is_inactive is False
+
+    def test_activate_inactive_queue(self):
+        """Test activating an inactive queue."""
+        q = pygcd.Queue("test.activate", inactive=True)
+        assert q.is_inactive is True
+
+        q.activate()
+        assert q.is_inactive is False
+
+        results = []
+        q.run_sync(lambda: results.append(1))
+        assert results == [1]
+
+    def test_activate_non_inactive_raises(self):
+        """Test that activating a non-inactive queue raises."""
+        q = pygcd.Queue("test.not_inactive")
+        with pytest.raises(RuntimeError):
+            q.activate()
+
+    def test_inactive_concurrent_queue(self):
+        """Test inactive concurrent queue."""
+        q = pygcd.Queue("test.inactive_concurrent", concurrent=True, inactive=True)
+        assert q.is_inactive is True
+
+        results = []
+        lock = threading.Lock()
+
+        for i in range(3):
+            q.run_async(lambda i=i: (lock.acquire(), results.append(i), lock.release()))
+
+        time.sleep(0.1)
+        assert results == []
+
+        q.activate()
+        q.barrier_sync(lambda: None)
+
+        assert len(results) == 3
+
+
+class TestData:
+    """Tests for Data class."""
+
+    def test_create_empty_data(self):
+        """Test creating empty data."""
+        d = pygcd.Data()
+        assert len(d) == 0
+        assert d.size == 0
+        assert bytes(d) == b""
+
+    def test_create_data_from_bytes(self):
+        """Test creating data from bytes."""
+        d = pygcd.Data(b"hello world")
+        assert len(d) == 11
+        assert d.size == 11
+        assert bytes(d) == b"hello world"
+
+    def test_data_concat(self):
+        """Test concatenating data."""
+        d1 = pygcd.Data(b"hello ")
+        d2 = pygcd.Data(b"world")
+        d3 = d1.concat(d2)
+
+        assert len(d3) == 11
+        assert bytes(d3) == b"hello world"
+
+    def test_data_concat_with_empty(self):
+        """Test concatenating with empty data."""
+        d1 = pygcd.Data(b"hello")
+        d2 = pygcd.Data()
+
+        d3 = d1.concat(d2)
+        assert bytes(d3) == b"hello"
+
+        d4 = d2.concat(d1)
+        assert bytes(d4) == b"hello"
+
+    def test_data_subrange(self):
+        """Test creating subrange of data."""
+        d = pygcd.Data(b"hello world")
+        sub = d.subrange(0, 5)
+
+        assert len(sub) == 5
+        assert bytes(sub) == b"hello"
+
+    def test_data_subrange_middle(self):
+        """Test subrange from middle of data."""
+        d = pygcd.Data(b"hello world")
+        sub = d.subrange(6, 5)
+
+        assert bytes(sub) == b"world"
+
+    def test_empty_data_subrange(self):
+        """Test subrange of empty data."""
+        d = pygcd.Data()
+        sub = d.subrange(0, 0)
+        assert len(sub) == 0
+
+
+class TestAsyncIO:
+    """Tests for async I/O functions."""
+
+    def test_read_async(self):
+        """Test asynchronous read."""
+        r, w = os.pipe()
+        results = []
+
+        def handler(data, error):
+            results.append((data, error))
+
+        try:
+            os.write(w, b"test data")
+            pygcd.read_async(r, 1024, handler)
+
+            time.sleep(0.2)
+            assert len(results) == 1
+            assert results[0][0] == b"test data"
+            assert results[0][1] == 0
+        finally:
+            os.close(r)
+            os.close(w)
+
+    def test_write_async(self):
+        """Test asynchronous write."""
+        r, w = os.pipe()
+        results = []
+
+        def handler(remaining, error):
+            results.append((remaining, error))
+
+        try:
+            pygcd.write_async(w, b"test data", handler)
+
+            time.sleep(0.2)
+            assert len(results) == 1
+            assert results[0][0] == b""
+            assert results[0][1] == 0
+
+            # Verify data was written
+            data = os.read(r, 1024)
+            assert data == b"test data"
+        finally:
+            os.close(r)
+            os.close(w)
+
+    def test_read_async_with_queue(self):
+        """Test read_async with explicit queue."""
+        r, w = os.pipe()
+        q = pygcd.Queue("io.queue")
+        results = []
+
+        def handler(data, error):
+            results.append((data, error))
+
+        try:
+            os.write(w, b"queued read")
+            pygcd.read_async(r, 1024, handler, queue=q)
+
+            time.sleep(0.2)
+            assert len(results) == 1
+            assert results[0][0] == b"queued read"
+        finally:
+            os.close(r)
+            os.close(w)
+
+
+class TestWorkloop:
+    """Tests for Workloop class."""
+
+    def test_create_workloop(self):
+        """Test creating a workloop."""
+        wl = pygcd.Workloop("test.workloop")
+        assert wl is not None
+        assert wl.is_inactive is False
+
+    def test_workloop_run_async(self):
+        """Test async execution on workloop."""
+        wl = pygcd.Workloop("test.wl_async")
+        results = []
+
+        wl.run_async(lambda: results.append(1))
+        wl.run_sync(lambda: None)
+
+        assert results == [1]
+
+    def test_workloop_run_sync(self):
+        """Test sync execution on workloop."""
+        wl = pygcd.Workloop("test.wl_sync")
+        results = []
+
+        wl.run_sync(lambda: results.append(1))
+        assert results == [1]
+
+    def test_create_inactive_workloop(self):
+        """Test creating inactive workloop."""
+        wl = pygcd.Workloop("test.wl_inactive", inactive=True)
+        assert wl.is_inactive is True
+
+    def test_activate_workloop(self):
+        """Test activating an inactive workloop."""
+        wl = pygcd.Workloop("test.wl_activate", inactive=True)
+        assert wl.is_inactive is True
+
+        # Cannot submit work to inactive workloop (Apple docs: undefined behavior)
+        with pytest.raises(RuntimeError):
+            wl.run_async(lambda: None)
+
+        # Activate and then submit work
+        wl.activate()
+        assert wl.is_inactive is False
+
+        results = []
+        wl.run_sync(lambda: results.append(1))
+        assert results == [1]
+
+    def test_activate_non_inactive_workloop_raises(self):
+        """Test that activating non-inactive workloop raises."""
+        wl = pygcd.Workloop("test.wl_not_inactive")
+        with pytest.raises(RuntimeError):
+            wl.activate()
+
+    def test_workloop_raises_on_non_callable(self):
+        """Test workloop raises TypeError for non-callable."""
+        wl = pygcd.Workloop("test.wl_error")
+        with pytest.raises(TypeError):
+            wl.run_async("not callable")
+
+
+class TestIOConstants:
+    """Tests for I/O constants."""
+
+    def test_io_constants(self):
+        """Test I/O type constants are defined."""
+        assert pygcd.IO_STREAM == 0
+        assert pygcd.IO_RANDOM == 1

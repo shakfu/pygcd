@@ -13,5 +13,7 @@ wheel.packages = ["src/pygcd"]
 
 [dependency-groups]
 dev = [
+    "mypy>=1.19.1",
     "pytest>=8.4.2",
+    "ruff>=0.14.10",
 ]

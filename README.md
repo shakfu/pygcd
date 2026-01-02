@@ -316,6 +316,28 @@ q.resume()
 # Now tasks execute
 ```
 
+### Inactive Queues
+
+Create queues that don't execute until activated. Useful for batch configuration.
+
+```python
+import pygcd
+
+# Create an inactive queue
+q = pygcd.Queue("lazy", inactive=True)
+print(q.is_inactive)  # True
+
+# Submit work (queued but not executed)
+q.run_async(lambda: print("Waiting to run..."))
+
+# Configure the queue while inactive
+q.set_target_queue(pygcd.Queue.global_queue())
+
+# Activate to begin execution
+q.activate()
+print(q.is_inactive)  # False
+```
+
 ### Main Queue
 
 Access the main thread's queue (useful for GUI apps).
@@ -341,13 +363,89 @@ future = time.time() + 3600  # 1 hour from now
 t = pygcd.walltime(timestamp=future)
 ```
 
+### Dispatch Data
+
+Efficient immutable buffers for I/O operations.
+
+```python
+import pygcd
+
+# Create from bytes
+data = pygcd.Data(b"Hello, World!")
+print(len(data))  # 13
+print(bytes(data))  # b'Hello, World!'
+
+# Concatenate (returns new Data, originals unchanged)
+part1 = pygcd.Data(b"Hello, ")
+part2 = pygcd.Data(b"World!")
+combined = part1.concat(part2)
+
+# Extract subrange
+message = pygcd.Data(b"The quick brown fox")
+word = message.subrange(4, 5)  # b"quick"
+```
+
+### Async I/O
+
+Non-blocking file read and write operations.
+
+```python
+import os
+import pygcd
+
+# Async read
+fd = os.open("file.txt", os.O_RDONLY)
+sem = pygcd.Semaphore(0)
+
+def on_read(data, error):
+    if error == 0:
+        print(f"Read {len(data)} bytes: {data}")
+    sem.signal()
+
+pygcd.read_async(fd, 1024, on_read)
+sem.wait()
+os.close(fd)
+
+# Async write
+fd = os.open("output.txt", os.O_WRONLY | os.O_CREAT, 0o644)
+
+def on_write(remaining, error):
+    if error == 0:
+        print("Write complete")
+    sem.signal()
+
+pygcd.write_async(fd, b"Hello!", on_write)
+sem.wait()
+os.close(fd)
+```
+
+### Workloops
+
+Priority-inversion-avoiding queues for priority-sensitive workloads.
+
+```python
+import pygcd
+
+# Create a workloop
+wl = pygcd.Workloop("com.example.workloop")
+
+# Submit work (same API as queues)
+wl.run_async(lambda: print("Async task"))
+wl.run_sync(lambda: print("Sync task"))
+
+# Inactive workloops (cannot submit work until activated)
+inactive_wl = pygcd.Workloop("lazy", inactive=True)
+inactive_wl.activate()  # Now ready for work
+inactive_wl.run_sync(lambda: print("Running!"))
+```
+
 ## API Reference
 
 ### Queue
 
 | Method | Description |
 |--------|-------------|
-| `Queue(label=None, concurrent=False, qos=0, target=None)` | Create a queue |
+| `Queue(label=None, concurrent=False, ...)` | Create a queue |
 | `Queue.global_queue(priority=0)` | Get a global queue |
 | `Queue.main_queue()` | Get the main queue |
 | `run_async(func)` | Submit for async execution |
@@ -357,8 +455,10 @@ t = pygcd.walltime(timestamp=future)
 | `after(delay_seconds, func)` | Delayed execution |
 | `suspend()` | Suspend queue execution |
 | `resume()` | Resume queue execution |
+| `activate()` | Activate an inactive queue |
 | `set_target_queue(queue)` | Set target queue for hierarchy |
 | `label` | Queue's label (property) |
+| `is_inactive` | Check if queue is inactive (property) |
 
 Queue constructor parameters:
 - `label`: Optional string label for debugging
@@ -366,6 +466,7 @@ Queue constructor parameters:
 - `qos`: Quality of Service class (QOS_CLASS_* constants)
 - `relative_priority`: Priority offset within QOS class (-15 to 0)
 - `target`: Target queue for queue hierarchy
+- `inactive`: If True, create in inactive state (must call activate())
 
 ### Group
 
@@ -455,6 +556,29 @@ Timer constructor parameters:
 | `events_pending` | Events that occurred (property) |
 | `is_cancelled` | Check if cancelled (property) |
 
+### Data
+
+| Method | Description |
+|--------|-------------|
+| `Data(bytes=None)` | Create from bytes (or empty) |
+| `concat(other)` | Concatenate with another Data |
+| `subrange(offset, length)` | Extract a subrange |
+| `size` | Size in bytes (property) |
+| `__len__()` | Size in bytes |
+| `__bytes__()` | Convert to bytes |
+
+### Workloop
+
+| Method | Description |
+|--------|-------------|
+| `Workloop(label, inactive=False)` | Create a workloop |
+| `run_async(func)` | Submit for async execution |
+| `run_sync(func)` | Submit and wait for completion |
+| `activate()` | Activate an inactive workloop |
+| `is_inactive` | Check if inactive (property) |
+
+Note: Work cannot be submitted to inactive workloops (raises RuntimeError).
+
 ### Functions
 
 | Function | Description |
@@ -462,6 +586,10 @@ Timer constructor parameters:
 | `apply(iterations, func, queue=None)` | Parallel for loop |
 | `time_from_now(seconds)` | Create dispatch time (monotonic) |
 | `walltime(timestamp=0, delta_seconds=0)` | Create dispatch time (wall clock) |
+| `read_async(fd, length, callback, queue=None)` | Async file read |
+| `write_async(fd, data, callback, queue=None)` | Async file write |
+
+Async I/O callbacks receive `(data, error)` where `error` is 0 on success.
 
 ### Constants
 
@@ -485,6 +613,10 @@ Timer constructor parameters:
 - `PROC_EXEC` - Process executed exec()
 - `PROC_SIGNAL` - Process received a signal
 
+**I/O Types:**
+- `IO_STREAM` - Stream-based I/O
+- `IO_RANDOM` - Random access I/O
+
 ## Examples
 
 See the `examples/` directory for complete examples:
@@ -501,6 +633,10 @@ See the `examples/` directory for complete examples:
 - `signal_source.py` - Unix signal handling
 - `fd_source.py` - File descriptor I/O monitoring
 - `process_source.py` - Process lifecycle monitoring
+- `inactive_queue.py` - Creating and activating inactive queues
+- `dispatch_data.py` - Buffer management with Data objects
+- `async_io.py` - Asynchronous file read/write
+- `workloop.py` - Priority-inversion-avoiding workloops
 
 ## Notes
 
@@ -511,4 +647,7 @@ See the `examples/` directory for complete examples:
 
 ## License
 
-Apache 2.0
+GCD is licensed under the Apache 2.0 license
+
+This library is licensed under the MIT license
+
