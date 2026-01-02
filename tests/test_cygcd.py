@@ -637,9 +637,7 @@ class TestQueueQOS:
 
     def test_queue_concurrent_with_qos(self):
         """Test concurrent queue with QOS."""
-        q = cygcd.Queue(
-            "test.concurrent_qos", concurrent=True, qos=cygcd.QOS_CLASS_BACKGROUND
-        )
+        q = cygcd.Queue("test.concurrent_qos", concurrent=True, qos=cygcd.QOS_CLASS_BACKGROUND)
         results = []
         lock = threading.Lock()
 
@@ -748,9 +746,7 @@ class TestSignalSource:
 
         old_handler = signal.signal(signal.SIGUSR1, signal.SIG_IGN)
         try:
-            source = cygcd.SignalSource(
-                signal.SIGUSR1, lambda: results.append(1), queue=q
-            )
+            source = cygcd.SignalSource(signal.SIGUSR1, lambda: results.append(1), queue=q)
             source.start()
 
             os.kill(os.getpid(), signal.SIGUSR1)
@@ -1234,3 +1230,365 @@ class TestIOConstants:
         """Test I/O type constants are defined."""
         assert cygcd.IO_STREAM == 0
         assert cygcd.IO_RANDOM == 1
+        assert cygcd.IO_STOP == 0x1
+
+
+class TestIOChannel:
+    """Tests for IOChannel class."""
+
+    def test_create_stream_channel(self):
+        """Test creating a stream I/O channel."""
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(delete=False) as f:
+            f.write(b"test data")
+            path = f.name
+
+        try:
+            fd = os.open(path, os.O_RDONLY)
+            try:
+                channel = cygcd.IOChannel(fd, cygcd.IO_STREAM)
+                assert channel.fd == fd
+                assert not channel.is_closed
+                channel.close()
+                assert channel.is_closed
+            finally:
+                os.close(fd)
+        finally:
+            os.unlink(path)
+
+    def test_create_random_channel(self):
+        """Test creating a random access I/O channel."""
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(delete=False) as f:
+            f.write(b"test data for random access")
+            path = f.name
+
+        try:
+            fd = os.open(path, os.O_RDONLY)
+            try:
+                channel = cygcd.IOChannel(fd, cygcd.IO_RANDOM)
+                assert channel.fd == fd
+                channel.close()
+            finally:
+                os.close(fd)
+        finally:
+            os.unlink(path)
+
+    def test_read_basic(self):
+        """Test basic async read."""
+        import tempfile
+
+        test_data = b"Hello, IOChannel!"
+
+        with tempfile.NamedTemporaryFile(delete=False) as f:
+            f.write(test_data)
+            path = f.name
+
+        try:
+            fd = os.open(path, os.O_RDONLY)
+            try:
+                channel = cygcd.IOChannel(fd, cygcd.IO_STREAM)
+                results = []
+                sem = cygcd.Semaphore(0)
+
+                def on_read(done, data, error):
+                    results.append((done, data, error))
+                    if done:
+                        sem.signal()
+
+                channel.read(1024, on_read)
+                completed = sem.wait(5.0)  # 5 second timeout
+                assert completed, "Read timed out"
+
+                channel.close()
+
+                # Should have received data with done=True
+                assert len(results) >= 1
+                # Collect all data
+                all_data = b"".join(r[1] for r in results)
+                assert all_data == test_data
+                # Last result should have done=True
+                assert results[-1][0] is True
+                # No errors
+                assert all(r[2] == 0 for r in results)
+            finally:
+                os.close(fd)
+        finally:
+            os.unlink(path)
+
+    def test_write_basic(self):
+        """Test basic async write."""
+        import tempfile
+
+        test_data = b"Writing via IOChannel!"
+
+        with tempfile.NamedTemporaryFile(delete=False) as f:
+            path = f.name
+
+        try:
+            fd = os.open(path, os.O_WRONLY | os.O_TRUNC)
+            try:
+                channel = cygcd.IOChannel(fd, cygcd.IO_STREAM)
+                results = []
+                sem = cygcd.Semaphore(0)
+
+                def on_write(done, remaining, error):
+                    results.append((done, remaining, error))
+                    if done:
+                        sem.signal()
+
+                channel.write(test_data, on_write)
+                completed = sem.wait(5.0)
+                assert completed, "Write timed out"
+
+                channel.close()
+
+                # Verify data was written
+                assert len(results) >= 1
+                assert results[-1][0] is True  # done=True
+                assert results[-1][2] == 0  # no error
+            finally:
+                os.close(fd)
+
+            # Verify file contents
+            with open(path, "rb") as f:
+                written = f.read()
+            assert written == test_data
+        finally:
+            os.unlink(path)
+
+    def test_read_with_high_water(self):
+        """Test read with high water mark delivers in chunks."""
+        import tempfile
+
+        # Create data larger than high water mark
+        test_data = b"X" * 10000  # 10KB
+
+        with tempfile.NamedTemporaryFile(delete=False) as f:
+            f.write(test_data)
+            path = f.name
+
+        try:
+            fd = os.open(path, os.O_RDONLY)
+            try:
+                channel = cygcd.IOChannel(fd, cygcd.IO_STREAM)
+                channel.set_high_water(1024)  # 1KB chunks
+
+                results = []
+                sem = cygcd.Semaphore(0)
+
+                def on_read(done, data, error):
+                    results.append((done, data, error))
+                    if done:
+                        sem.signal()
+
+                channel.read(len(test_data), on_read)
+                completed = sem.wait(5.0)
+                assert completed, "Read timed out"
+
+                channel.close()
+
+                # Should have received multiple chunks
+                assert len(results) >= 2, f"Expected multiple chunks, got {len(results)}"
+                # Collect all data
+                all_data = b"".join(r[1] for r in results)
+                assert all_data == test_data
+            finally:
+                os.close(fd)
+        finally:
+            os.unlink(path)
+
+    def test_close_idempotent(self):
+        """Test that close can be called multiple times."""
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(delete=False) as f:
+            path = f.name
+
+        try:
+            fd = os.open(path, os.O_RDONLY)
+            try:
+                channel = cygcd.IOChannel(fd, cygcd.IO_STREAM)
+                channel.close()
+                channel.close()  # Should not raise
+                assert channel.is_closed
+            finally:
+                os.close(fd)
+        finally:
+            os.unlink(path)
+
+    def test_close_with_stop(self):
+        """Test close with IO_STOP flag."""
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(delete=False) as f:
+            f.write(b"test")
+            path = f.name
+
+        try:
+            fd = os.open(path, os.O_RDONLY)
+            try:
+                channel = cygcd.IOChannel(fd, cygcd.IO_STREAM)
+                channel.close(stop=True)
+                assert channel.is_closed
+            finally:
+                os.close(fd)
+        finally:
+            os.unlink(path)
+
+    def test_barrier(self):
+        """Test barrier waits for pending operations."""
+        import tempfile
+
+        test_data = b"Barrier test data"
+
+        with tempfile.NamedTemporaryFile(delete=False) as f:
+            f.write(test_data)
+            path = f.name
+
+        try:
+            fd = os.open(path, os.O_RDONLY)
+            try:
+                channel = cygcd.IOChannel(fd, cygcd.IO_STREAM)
+                read_done = [False]
+                barrier_done = [False]
+                sem = cygcd.Semaphore(0)
+
+                def on_read(done, data, error):
+                    if done:
+                        read_done[0] = True
+
+                def on_barrier():
+                    barrier_done[0] = True
+                    sem.signal()
+
+                channel.read(1024, on_read)
+                channel.barrier(on_barrier)
+
+                completed = sem.wait(5.0)
+                assert completed, "Barrier timed out"
+
+                channel.close()
+
+                # Barrier should have executed after read
+                assert read_done[0]
+                assert barrier_done[0]
+            finally:
+                os.close(fd)
+        finally:
+            os.unlink(path)
+
+    def test_operations_on_closed_channel_raise(self):
+        """Test that operations on closed channel raise RuntimeError."""
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(delete=False) as f:
+            path = f.name
+
+        try:
+            fd = os.open(path, os.O_RDONLY)
+            try:
+                channel = cygcd.IOChannel(fd, cygcd.IO_STREAM)
+                channel.close()
+
+                with pytest.raises(RuntimeError):
+                    channel.read(1024, lambda d, da, e: None)
+
+                with pytest.raises(RuntimeError):
+                    channel.write(b"test", lambda d, r, e: None)
+
+                with pytest.raises(RuntimeError):
+                    channel.barrier(lambda: None)
+
+                with pytest.raises(RuntimeError):
+                    channel.set_high_water(1024)
+
+                with pytest.raises(RuntimeError):
+                    channel.set_low_water(1024)
+
+                with pytest.raises(RuntimeError):
+                    channel.set_interval(1000)
+            finally:
+                os.close(fd)
+        finally:
+            os.unlink(path)
+
+    def test_raises_on_non_callable_handler(self):
+        """Test that non-callable handlers raise TypeError."""
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(delete=False) as f:
+            path = f.name
+
+        try:
+            fd = os.open(path, os.O_RDONLY)
+            try:
+                channel = cygcd.IOChannel(fd, cygcd.IO_STREAM)
+
+                with pytest.raises(TypeError):
+                    channel.read(1024, "not callable")
+
+                with pytest.raises(TypeError):
+                    channel.write(b"test", "not callable")
+
+                with pytest.raises(TypeError):
+                    channel.barrier("not callable")
+
+                channel.close()
+            finally:
+                os.close(fd)
+        finally:
+            os.unlink(path)
+
+    def test_write_requires_bytes(self):
+        """Test that write requires bytes data."""
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(delete=False) as f:
+            path = f.name
+
+        try:
+            fd = os.open(path, os.O_WRONLY)
+            try:
+                channel = cygcd.IOChannel(fd, cygcd.IO_STREAM)
+
+                with pytest.raises(TypeError):
+                    channel.write("not bytes", lambda d, r, e: None)
+
+                channel.close()
+            finally:
+                os.close(fd)
+        finally:
+            os.unlink(path)
+
+    def test_cleanup_handler(self):
+        """Test cleanup handler is called on close."""
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(delete=False) as f:
+            path = f.name
+
+        try:
+            fd = os.open(path, os.O_RDONLY)
+            cleanup_called = [False]
+            cleanup_error = [None]
+
+            def on_cleanup(error):
+                cleanup_called[0] = True
+                cleanup_error[0] = error
+
+            try:
+                channel = cygcd.IOChannel(fd, cygcd.IO_STREAM, cleanup_handler=on_cleanup)
+                channel.close()
+
+                # Give cleanup handler time to execute
+                time.sleep(0.2)
+
+                assert cleanup_called[0], "Cleanup handler not called"
+                assert cleanup_error[0] == 0, f"Unexpected error: {cleanup_error[0]}"
+            finally:
+                os.close(fd)
+        finally:
+            os.unlink(path)

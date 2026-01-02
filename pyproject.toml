@@ -1,6 +1,6 @@
 [project]
 name = "cygcd"
-version = "0.1.1"
+version = "0.1.2"
 description = "Python wrapper for macOS Grand Central Dispatch (GCD)"
 readme = "README.md"
 authors = [
@@ -46,7 +46,7 @@ build-backend = "scikit_build_core.build"
 [tool.scikit-build]
 wheel.packages = ["src/cygcd"]
 wheel.exclude = ["*.pyx"]
-sdist.exclude = ["headers/", "examples/c/"]
+sdist.exclude = ["docs/", "examples/c/"]
 
 [tool.ruff]
 line-length = 100

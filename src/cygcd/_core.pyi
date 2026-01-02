@@ -34,6 +34,7 @@ PROC_SIGNAL: int
 # I/O type constants
 IO_STREAM: int
 IO_RANDOM: int
+IO_STOP: int
 
 __version__: str
 
@@ -206,6 +207,38 @@ class Workloop:
     def activate(self) -> None: ...
     @property
     def is_inactive(self) -> bool: ...
+
+class IOChannel:
+    """High-performance async file I/O channel."""
+
+    def __init__(
+        self,
+        fd: int,
+        io_type: int = ...,
+        queue: Optional[Queue] = None,
+        cleanup_handler: Optional[Callable[[int], None]] = None,
+    ) -> None: ...
+    def read(
+        self,
+        length: int,
+        handler: Callable[[bool, Optional[bytes], int], None],
+        offset: int = 0,
+        queue: Optional[Queue] = None,
+    ) -> None: ...
+    def write(
+        self,
+        data: bytes,
+        handler: Callable[[bool, Optional[bytes], int], None],
+        offset: int = 0,
+        queue: Optional[Queue] = None,
+    ) -> None: ...
+    def close(self, stop: bool = False) -> None: ...
+    def set_high_water(self, size: int) -> None: ...
+    def set_low_water(self, size: int) -> None: ...
+    def set_interval(self, interval_ns: int, strict: bool = False) -> None: ...
+    def barrier(self, handler: Callable[[], None], queue: Optional[Queue] = None) -> None: ...
+    @property
+    def fd(self) -> int: ...
 
 # Functions
 def apply(

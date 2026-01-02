@@ -17,6 +17,7 @@ Prioritized plan for wrapping remaining Grand Central Dispatch APIs.
 - [x] Data (create, concat, subrange)
 - [x] Workloop (create, async, sync, inactive)
 - [x] I/O Convenience (read_async, write_async)
+- [x] IOChannel (dispatch_io for high-performance async file I/O)
 
 ---
 
@@ -154,26 +155,28 @@ Functions wrapped:
 
 Specialized APIs with narrower use cases.
 
-### 3.1 Dispatch I/O - Channels
+### 3.1 Dispatch I/O - Channels - DONE
 
 High-performance async file I/O.
 
 ```python
-channel = cygcd.IOChannel(fd, queue=q)
+channel = cygcd.IOChannel(fd, io_type=cygcd.IO_STREAM)
+channel.set_high_water(4096)  # Read in chunks
 channel.read(length, handler=on_data)
 channel.write(data, handler=on_complete)
+channel.barrier(handler=on_all_complete)
 channel.close()
 ```
 
-Functions to wrap:
-- [ ] `dispatch_io_create`
-- [ ] `dispatch_io_read`
-- [ ] `dispatch_io_write`
-- [ ] `dispatch_io_close`
-- [ ] `dispatch_io_set_high_water`
-- [ ] `dispatch_io_set_low_water`
-- [ ] `dispatch_io_set_interval`
-- [ ] `dispatch_io_barrier`
+Functions wrapped:
+- [x] `dispatch_io_create`
+- [x] `dispatch_io_read`
+- [x] `dispatch_io_write`
+- [x] `dispatch_io_close`
+- [x] `dispatch_io_set_high_water`
+- [x] `dispatch_io_set_low_water`
+- [x] `dispatch_io_set_interval`
+- [x] `dispatch_io_barrier`
 
 ### 3.2 Dispatch I/O - Convenience - DONE
 

@@ -25,6 +25,7 @@ from cygcd._core import (
     ProcessSource,
     Data,
     Workloop,
+    IOChannel,
     # Functions
     apply,
     time_from_now,
@@ -59,6 +60,7 @@ from cygcd._core import (
     # I/O type constants
     IO_STREAM,
     IO_RANDOM,
+    IO_STOP,
 )
 
 __all__ = [
@@ -74,6 +76,7 @@ __all__ = [
     "ProcessSource",
     "Data",
     "Workloop",
+    "IOChannel",
     # Functions
     "apply",
     "time_from_now",
@@ -108,5 +111,6 @@ __all__ = [
     # I/O type constants
     "IO_STREAM",
     "IO_RANDOM",
+    "IO_STOP",
 ]
 __version__ = "0.2.0"

@@ -233,26 +233,26 @@ cdef extern from "dispatch/dispatch.h" nogil:
     # Dispatch I/O close flags
     unsigned int DISPATCH_IO_STOP
 
-    # Dispatch I/O functions
+    # Dispatch I/O functions (block parameters declared as void* for ObjC blocks)
     dispatch_io_t dispatch_io_create(unsigned int type, int fd,
                                      dispatch_queue_t queue,
-                                     void (*cleanup_handler)(int error))
+                                     void* cleanup_handler)
     dispatch_io_t dispatch_io_create_with_path(unsigned int type, const char* path,
                                                int oflag, unsigned short mode,
                                                dispatch_queue_t queue,
-                                               void (*cleanup_handler)(int error))
+                                               void* cleanup_handler)
     void dispatch_io_read(dispatch_io_t channel, off_t offset, size_t length,
                           dispatch_queue_t queue,
-                          void (*handler)(bint done, dispatch_data_t data, int error))
+                          void* handler)
     void dispatch_io_write(dispatch_io_t channel, off_t offset, dispatch_data_t data,
                            dispatch_queue_t queue,
-                           void (*handler)(bint done, dispatch_data_t data, int error))
+                           void* handler)
     void dispatch_io_close(dispatch_io_t channel, unsigned int flags)
     void dispatch_io_set_high_water(dispatch_io_t channel, size_t high_water)
     void dispatch_io_set_low_water(dispatch_io_t channel, size_t low_water)
     void dispatch_io_set_interval(dispatch_io_t channel, uint64_t interval,
                                   unsigned int flags)
-    void dispatch_io_barrier(dispatch_io_t channel, void (*barrier)())
+    void dispatch_io_barrier(dispatch_io_t channel, void* barrier)
 
     # Dispatch Data functions
     dispatch_data_t dispatch_data_create(const void* buffer, size_t size,
@@ -285,6 +285,159 @@ cdef extern from "dispatch/dispatch.h" nogil:
 
     dispatch_workloop_t dispatch_workloop_create(const char* label)
     dispatch_workloop_t dispatch_workloop_create_inactive(const char* label)
+
+
+# Inline Objective-C code for block support
+# This enables dispatch_io functions which require ObjC blocks
+cdef extern from *:
+    """
+    #import <dispatch/dispatch.h>
+    #import <Block.h>
+
+    // Forward declaration of Python callback invoker (defined in Cython)
+    // Note: Cython's bint becomes int in C, not _Bool
+    extern void _cygcd_invoke_io_callback(unsigned long cb_id, int done,
+                                          dispatch_data_t data, int error);
+    extern void _cygcd_invoke_cleanup_callback(unsigned long cb_id, int error);
+    extern void _cygcd_invoke_barrier_callback(unsigned long cb_id);
+
+    // Create an I/O handler block that calls back to Python
+    static inline void* _cygcd_create_io_block(unsigned long cb_id) {
+        dispatch_io_handler_t block = ^(bool done, dispatch_data_t data, int error) {
+            _cygcd_invoke_io_callback(cb_id, done, data, error);
+        };
+        return Block_copy(block);
+    }
+
+    // Create a cleanup handler block
+    static inline void* _cygcd_create_cleanup_block(unsigned long cb_id) {
+        dispatch_io_handler_t block = ^(bool done, dispatch_data_t data, int error) {
+            // Cleanup handler signature differs - it receives (int error) only
+            // But dispatch_io_create expects the same block type
+            // Actually, cleanup_handler is void(^)(int error)
+        };
+        return NULL;  // Will implement properly below
+    }
+
+    // Proper cleanup block type
+    typedef void (^cleanup_block_t)(int);
+    static inline void* _cygcd_create_cleanup_block_v2(unsigned long cb_id) {
+        cleanup_block_t block = ^(int error) {
+            _cygcd_invoke_cleanup_callback(cb_id, error);
+        };
+        return Block_copy(block);
+    }
+
+    // Create a barrier block
+    typedef void (^barrier_block_t)(void);
+    static inline void* _cygcd_create_barrier_block(unsigned long cb_id) {
+        barrier_block_t block = ^{
+            _cygcd_invoke_barrier_callback(cb_id);
+        };
+        return Block_copy(block);
+    }
+
+    // Release a block
+    static inline void _cygcd_release_block(void* block) {
+        if (block != NULL) {
+            Block_release(block);
+        }
+    }
+    """
+    void* _cygcd_create_io_block(unsigned long cb_id) nogil
+    void* _cygcd_create_cleanup_block_v2(unsigned long cb_id) nogil
+    void* _cygcd_create_barrier_block(unsigned long cb_id) nogil
+    void _cygcd_release_block(void* block) nogil
+
+
+# Storage for I/O channel callbacks (prevent garbage collection)
+cdef dict _iochannel_callbacks = {}
+cdef unsigned long _iochannel_callback_counter = 0
+
+
+cdef unsigned long _register_io_callback(object callback):
+    """Register a callback and return its ID."""
+    global _iochannel_callback_counter
+    cdef unsigned long cb_id = _iochannel_callback_counter
+    _iochannel_callback_counter += 1
+    Py_INCREF(callback)
+    _iochannel_callbacks[cb_id] = callback
+    return cb_id
+
+
+cdef object _get_io_callback(unsigned long cb_id):
+    """Get a callback by ID (does not remove it)."""
+    return _iochannel_callbacks.get(cb_id)
+
+
+cdef void _unregister_io_callback(unsigned long cb_id):
+    """Unregister and decref a callback."""
+    cdef object callback = _iochannel_callbacks.pop(cb_id, None)
+    if callback is not None:
+        Py_DECREF(callback)
+
+
+# C-callable functions that the blocks invoke
+cdef public void _cygcd_invoke_io_callback(unsigned long cb_id, bint done,
+                                           dispatch_data_t data, int error) noexcept with gil:
+    """Called from ObjC block to invoke Python I/O callback."""
+    cdef object callback = _get_io_callback(cb_id)
+    if callback is None:
+        return
+
+    # Convert dispatch_data to bytes
+    cdef bytes py_data = b""
+    cdef const void* buffer = NULL
+    cdef size_t size = 0
+    cdef dispatch_data_t mapped = NULL
+
+    if data != NULL:
+        with nogil:
+            mapped = dispatch_data_create_map(data, &buffer, &size)
+        if mapped != NULL and buffer != NULL and size > 0:
+            py_data = (<const char*>buffer)[:size]
+        if mapped != NULL:
+            with nogil:
+                dispatch_release(<dispatch_queue_t>mapped)
+
+    try:
+        callback(done, py_data, error)
+    except BaseException:
+        PyErr_Print()
+
+    # If done, unregister the callback
+    if done:
+        _unregister_io_callback(cb_id)
+
+
+cdef public void _cygcd_invoke_cleanup_callback(unsigned long cb_id, int error) noexcept with gil:
+    """Called from ObjC block to invoke Python cleanup callback."""
+    cdef object callback = _get_io_callback(cb_id)
+    if callback is None:
+        return
+
+    try:
+        callback(error)
+    except BaseException:
+        PyErr_Print()
+
+    # Cleanup is always final
+    _unregister_io_callback(cb_id)
+
+
+cdef public void _cygcd_invoke_barrier_callback(unsigned long cb_id) noexcept with gil:
+    """Called from ObjC block to invoke Python barrier callback."""
+    cdef object callback = _get_io_callback(cb_id)
+    if callback is None:
+        return
+
+    try:
+        callback()
+    except BaseException:
+        PyErr_Print()
+
+    # Barrier is always final
+    _unregister_io_callback(cb_id)
 
 
 # Trampoline function that acquires GIL and calls Python callable
@@ -1643,6 +1796,7 @@ cdef class Data:
 # I/O type constants
 IO_STREAM = 0  # DISPATCH_IO_STREAM
 IO_RANDOM = 1  # DISPATCH_IO_RANDOM
+IO_STOP = 0x1  # DISPATCH_IO_STOP - close flag to cancel pending operations
 
 
 # Trampoline for dispatch_read/dispatch_write handlers
@@ -1876,3 +2030,295 @@ cdef class Workloop:
 
         if exception_info[0] is not None:
             raise exception_info[0]
+
+
+cdef class IOChannel:
+    """
+    High-performance asynchronous I/O channel using dispatch_io.
+
+    IOChannel provides efficient async file I/O with automatic chunking,
+    flow control via high/low water marks, and synchronization via barriers.
+
+    Example:
+        >>> fd = os.open("file.txt", os.O_RDONLY)
+        >>> channel = cygcd.IOChannel(fd, cygcd.IO_STREAM)
+        >>> channel.set_high_water(4096)  # Read in 4KB chunks
+        >>> def on_read(done, data, error):
+        ...     if data:
+        ...         print(f"Read {len(data)} bytes")
+        ...     if done:
+        ...         print("Read complete")
+        >>> channel.read(1024*1024, on_read)  # Read up to 1MB
+        >>> # ... wait for completion ...
+        >>> channel.close()
+        >>> os.close(fd)
+    """
+    cdef dispatch_io_t _channel
+    cdef bint _owned
+    cdef bint _closed
+    cdef int _fd
+    cdef unsigned long _cleanup_cb_id
+    cdef object _cleanup_handler
+
+    def __cinit__(self):
+        self._channel = NULL
+        self._owned = False
+        self._closed = False
+        self._fd = -1
+        self._cleanup_cb_id = 0
+        self._cleanup_handler = None
+
+    def __init__(self, int fd, unsigned int io_type=0, Queue queue=None,
+                 cleanup_handler=None):
+        """
+        Create an I/O channel for a file descriptor.
+
+        Args:
+            fd: File descriptor (must remain open while channel is active).
+            io_type: IO_STREAM (0) for sequential I/O, IO_RANDOM (1) for
+                     random access I/O with offsets.
+            queue: Queue for cleanup handler execution (default: global queue).
+            cleanup_handler: Optional callable(error: int) invoked when channel
+                             is fully closed. error is 0 on success.
+
+        Raises:
+            RuntimeError: If channel creation fails.
+            TypeError: If cleanup_handler is provided but not callable.
+        """
+        cdef dispatch_queue_t q
+        cdef void* cleanup_block = NULL
+
+        if cleanup_handler is not None and not callable(cleanup_handler):
+            raise TypeError("cleanup_handler must be callable")
+
+        if queue is not None:
+            q = queue._queue
+        else:
+            with nogil:
+                q = dispatch_get_global_queue(_DISPATCH_QUEUE_PRIORITY_DEFAULT, 0)
+
+        # Register cleanup handler if provided
+        if cleanup_handler is not None:
+            self._cleanup_handler = cleanup_handler
+            self._cleanup_cb_id = _register_io_callback(cleanup_handler)
+            cleanup_block = _cygcd_create_cleanup_block_v2(self._cleanup_cb_id)
+
+        # Create the channel
+        with nogil:
+            self._channel = dispatch_io_create(io_type, fd, q, <void*>cleanup_block)
+
+        if self._channel == NULL:
+            # Clean up the block and callback if channel creation failed
+            if cleanup_block != NULL:
+                _cygcd_release_block(cleanup_block)
+                _unregister_io_callback(self._cleanup_cb_id)
+            raise RuntimeError("Failed to create I/O channel")
+
+        self._fd = fd
+        self._owned = True
+
+    def __dealloc__(self):
+        if self._channel != NULL and self._owned:
+            if not self._closed:
+                with nogil:
+                    dispatch_io_close(self._channel, 0)
+            with nogil:
+                dispatch_release(<dispatch_queue_t>self._channel)
+            self._channel = NULL
+
+    def read(self, size_t length, handler, off_t offset=0, Queue queue=None):
+        """
+        Read data asynchronously from the channel.
+
+        The handler may be called multiple times with chunks of data.
+        When done=True, the read operation is complete.
+
+        Args:
+            length: Maximum bytes to read. Use a large value to read all available.
+            handler: Callable(done: bool, data: bytes, error: int).
+                     - done: True when read is complete or error occurred.
+                     - data: Bytes read (may be empty on final call or error).
+                     - error: 0 on success, errno on failure.
+            offset: File offset for IO_RANDOM channels (ignored for IO_STREAM).
+            queue: Queue for handler execution (default: global queue).
+
+        Raises:
+            RuntimeError: If channel is closed.
+            TypeError: If handler is not callable.
+        """
+        if self._closed:
+            raise RuntimeError("Channel is closed")
+        if not callable(handler):
+            raise TypeError("handler must be callable")
+
+        cdef dispatch_queue_t q
+        if queue is not None:
+            q = queue._queue
+        else:
+            with nogil:
+                q = dispatch_get_global_queue(_DISPATCH_QUEUE_PRIORITY_DEFAULT, 0)
+
+        # Register callback and create block
+        cdef unsigned long cb_id = _register_io_callback(handler)
+        cdef void* block = _cygcd_create_io_block(cb_id)
+
+        with nogil:
+            dispatch_io_read(self._channel, offset, length, q, <void*>block)
+
+        # Note: Block is retained by GCD, will be released when done
+
+    def write(self, bytes data, handler, off_t offset=0, Queue queue=None):
+        """
+        Write data asynchronously to the channel.
+
+        The handler may be called multiple times as data is written.
+        When done=True, the write operation is complete.
+
+        Args:
+            data: Bytes to write.
+            handler: Callable(done: bool, remaining: bytes, error: int).
+                     - done: True when write is complete or error occurred.
+                     - remaining: Bytes not yet written (empty when complete).
+                     - error: 0 on success, errno on failure.
+            offset: File offset for IO_RANDOM channels (ignored for IO_STREAM).
+            queue: Queue for handler execution (default: global queue).
+
+        Raises:
+            RuntimeError: If channel is closed.
+            TypeError: If handler is not callable or data is not bytes.
+        """
+        if self._closed:
+            raise RuntimeError("Channel is closed")
+        if not callable(handler):
+            raise TypeError("handler must be callable")
+        if not isinstance(data, bytes):
+            raise TypeError("data must be bytes")
+
+        cdef dispatch_queue_t q
+        if queue is not None:
+            q = queue._queue
+        else:
+            with nogil:
+                q = dispatch_get_global_queue(_DISPATCH_QUEUE_PRIORITY_DEFAULT, 0)
+
+        # Create dispatch_data from bytes
+        cdef const char* buffer = data
+        cdef size_t size = len(data)
+        cdef dispatch_data_t dispatch_data
+
+        with nogil:
+            dispatch_data = dispatch_data_create(buffer, size, NULL, NULL)
+
+        if dispatch_data == NULL:
+            raise RuntimeError("Failed to create dispatch data")
+
+        # Register callback and create block
+        cdef unsigned long cb_id = _register_io_callback(handler)
+        cdef void* block = _cygcd_create_io_block(cb_id)
+
+        with nogil:
+            dispatch_io_write(self._channel, offset, dispatch_data, q, <void*>block)
+            # Release our reference to dispatch_data (GCD retains it)
+            dispatch_release(<dispatch_queue_t>dispatch_data)
+
+    def close(self, bint stop=False):
+        """
+        Close the I/O channel.
+
+        Args:
+            stop: If True, cancel pending operations immediately (IO_STOP).
+                  If False, allow pending operations to complete.
+        """
+        if self._closed:
+            return
+
+        cdef unsigned int flags = 0
+        if stop:
+            flags = DISPATCH_IO_STOP
+
+        with nogil:
+            dispatch_io_close(self._channel, flags)
+
+        self._closed = True
+
+    def set_high_water(self, size_t size):
+        """
+        Set the high water mark for I/O operations.
+
+        The high water mark determines the maximum number of bytes to
+        deliver per handler invocation. Useful for processing large
+        files in chunks.
+
+        Args:
+            size: Maximum bytes per handler call.
+        """
+        if self._closed:
+            raise RuntimeError("Channel is closed")
+        with nogil:
+            dispatch_io_set_high_water(self._channel, size)
+
+    def set_low_water(self, size_t size):
+        """
+        Set the low water mark for I/O operations.
+
+        The low water mark determines the minimum number of bytes to
+        accumulate before invoking the handler (except for final delivery).
+
+        Args:
+            size: Minimum bytes before handler invocation.
+        """
+        if self._closed:
+            raise RuntimeError("Channel is closed")
+        with nogil:
+            dispatch_io_set_low_water(self._channel, size)
+
+    def set_interval(self, uint64_t interval_ns, unsigned int flags=0):
+        """
+        Set the delivery interval for I/O operations.
+
+        Allows batching of I/O operations for efficiency.
+
+        Args:
+            interval_ns: Interval in nanoseconds.
+            flags: Optional flags (currently unused, pass 0).
+        """
+        if self._closed:
+            raise RuntimeError("Channel is closed")
+        with nogil:
+            dispatch_io_set_interval(self._channel, interval_ns, flags)
+
+    def barrier(self, handler):
+        """
+        Execute a handler when all pending I/O operations complete.
+
+        The barrier handler is executed after all previously submitted
+        read and write operations have completed.
+
+        Args:
+            handler: Callable with no arguments.
+
+        Raises:
+            RuntimeError: If channel is closed.
+            TypeError: If handler is not callable.
+        """
+        if self._closed:
+            raise RuntimeError("Channel is closed")
+        if not callable(handler):
+            raise TypeError("handler must be callable")
+
+        # Register callback and create block
+        cdef unsigned long cb_id = _register_io_callback(handler)
+        cdef void* block = _cygcd_create_barrier_block(cb_id)
+
+        with nogil:
+            dispatch_io_barrier(self._channel, <void*>block)
+
+    @property
+    def fd(self):
+        """The file descriptor associated with this channel."""
+        return self._fd
+
+    @property
+    def is_closed(self):
+        """Check if the channel has been closed."""
+        return self._closed

@@ -5,6 +5,54 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2]
+
+### Added
+
+#### High-Performance Async I/O
+
+- `IOChannel` - Dispatch I/O channel for high-performance async file operations
+  - `IOChannel(fd, io_type, queue, cleanup_handler)` - Create channel from file descriptor
+  - `read(length, handler, offset, queue)` - Async read with chunked delivery
+  - `write(data, handler, offset, queue)` - Async write with progress callbacks
+  - `close(stop)` - Close channel, optionally cancelling pending operations
+  - `set_high_water(size)` - Set maximum bytes per handler callback
+  - `set_low_water(size)` - Set minimum bytes before handler is called
+  - `set_interval(interval_ns, strict)` - Set delivery interval for chunked I/O
+  - `barrier(handler, queue)` - Execute handler after all pending I/O completes
+  - `fd` property - File descriptor associated with channel
+  - Supports both `IO_STREAM` (sequential) and `IO_RANDOM` (random access) modes
+
+#### Constants
+
+- `IO_STOP` - Flag for `IOChannel.close()` to cancel pending operations
+
+#### Documentation
+
+- `docs/usecase_audio.md` - Guide for audio and MIDI applications
+  - Low-latency audio callbacks with Timer and QOS
+  - MIDI sequencing and clock generation
+  - Multi-track synchronized playback
+  - Lookahead scheduling patterns
+  - Priority inversion avoidance with Workloop
+
+- `docs/usecase_image_video.md` - Guide for image and video processing
+  - Parallel image batch processing
+  - Video frame pipelines
+  - Thumbnail generation
+  - Real-time video effects
+
+- README feature comparison table with usage guidance
+
+#### Examples
+
+- `examples/io_channel.py` - IOChannel usage for chunked file I/O
+
+#### Technical
+
+- Objective-C block support for dispatch_io APIs
+- Block-to-Python callback bridge with proper lifecycle management
+
 ## [0.1.1]
 
 ### Added

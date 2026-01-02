@@ -6,9 +6,18 @@ GCD provides a powerful API for concurrent programming, allowing you to execute 
 
 ## Installation
 
+```sh
+pip install cygcd
+
+# or
+
+uv add gcd
+```
+
+To build
+
 ```bash
-# Clone and install
-git clone <repository>
+git clone https://github.com/shakfu/cygcd.git
 cd cygcd
 make
 ```
@@ -29,6 +38,105 @@ q.run_async(lambda: print("Hello from GCD!"))
 # Execute synchronously (blocks until complete)
 q.run_sync(lambda: print("This runs and waits"))
 ```
+
+## When to Use What
+
+This library provides multiple primitives for different concurrency patterns. Here's a guide to choosing the right tool:
+
+### Feature Comparison
+
+| Feature | Purpose | Use When |
+|---------|---------|----------|
+| **Queue** | Task scheduling | You need to run code on background threads or serialize access to a resource |
+| **Group** | Track multiple tasks | You need to wait for several async operations to complete |
+| **Semaphore** | Resource limiting | You need to limit concurrent access (connection pools, rate limiting) |
+| **Timer** | Periodic execution | You need recurring tasks or delayed one-shot execution |
+| **IOChannel** | High-performance file I/O | You're reading/writing large files and need chunked, async I/O |
+| **read_async/write_async** | Simple async I/O | You need basic async file operations without chunking |
+| **ReadSource/WriteSource** | FD monitoring | You need to know when a file descriptor is readable/writable |
+| **SignalSource** | Signal handling | You need to handle Unix signals asynchronously |
+| **ProcessSource** | Process monitoring | You need to track child process lifecycle events |
+| **Workloop** | Priority-sensitive work | You have mixed-priority tasks sharing resources (rare, mostly real-time/UI) |
+
+### Common Patterns
+
+**Pattern: Parallel Processing**
+```python
+# Use apply() for parallel for-loops
+cygcd.apply(100, lambda i: process_item(i))
+
+# Or use Group for heterogeneous tasks
+g = cygcd.Group()
+q = cygcd.Queue.global_queue()
+g.run_async(q, task_a)
+g.run_async(q, task_b)
+g.wait()
+```
+
+**Pattern: Rate Limiting**
+```python
+# Semaphore limits concurrent operations
+sem = cygcd.Semaphore(3)  # Max 3 concurrent
+
+def limited_operation():
+    sem.wait()
+    try:
+        do_work()
+    finally:
+        sem.signal()
+```
+
+**Pattern: Reader-Writer Lock**
+```python
+# Concurrent queue + barriers for reader-writer access
+q = cygcd.Queue("rw", concurrent=True)
+q.run_async(read_data)      # Readers run concurrently
+q.run_async(read_data)
+q.barrier_async(write_data) # Writer has exclusive access
+```
+
+**Pattern: Large File Processing**
+```python
+# IOChannel for chunked reads with flow control
+channel = cygcd.IOChannel(fd, cygcd.IO_STREAM)
+channel.set_high_water(65536)  # 64KB chunks
+
+def on_chunk(done, data, error):
+    process_chunk(data)
+    if done:
+        signal_complete()
+
+channel.read(file_size, on_chunk)
+```
+
+**Pattern: Event Loop Integration**
+```python
+# ReadSource for non-blocking socket monitoring
+def on_readable():
+    data = sock.recv(4096)
+    handle_data(data)
+
+source = cygcd.ReadSource(sock.fileno(), on_readable)
+source.start()
+```
+
+### Choosing Between Similar Features
+
+**Queue vs Workloop**
+- Use `Queue` for most cases - simpler and sufficient
+- Use `Workloop` when priority inversion is a concern (real-time systems, UI responsiveness)
+
+**IOChannel vs read_async/write_async**
+- Use `read_async`/`write_async` for simple one-shot operations
+- Use `IOChannel` when you need chunked delivery, flow control, or multiple operations on the same file
+
+**Timer vs Queue.after()**
+- Use `after()` for one-shot delayed execution
+- Use `Timer` for repeating tasks or when you need to cancel/reconfigure
+
+**Group.wait() vs Semaphore**
+- Use `Group` when waiting for a known set of tasks to complete
+- Use `Semaphore` for producer-consumer patterns or resource limiting
 
 ## Core Concepts
 
@@ -419,6 +527,52 @@ sem.wait()
 os.close(fd)
 ```
 
+### IOChannel (High-Performance I/O)
+
+IOChannel provides true dispatch_io functionality for high-performance file I/O with automatic chunking and flow control.
+
+```python
+import os
+import cygcd
+
+# Open file and create channel
+fd = os.open("large_file.bin", os.O_RDONLY)
+channel = cygcd.IOChannel(fd, cygcd.IO_STREAM)
+
+# Set high water mark for chunked delivery
+channel.set_high_water(65536)  # 64KB chunks
+
+chunks = []
+sem = cygcd.Semaphore(0)
+
+def on_read(done, data, error):
+    if error:
+        print(f"Error: {error}")
+    if data:
+        chunks.append(data)
+        print(f"Received {len(data)} bytes")
+    if done:
+        sem.signal()
+
+# Read up to 10MB
+channel.read(10 * 1024 * 1024, on_read)
+sem.wait()
+
+# Use barrier to synchronize after multiple operations
+channel.barrier(lambda: print("All I/O complete"))
+
+channel.close()
+os.close(fd)
+```
+
+For random access I/O with offsets:
+
+```python
+channel = cygcd.IOChannel(fd, cygcd.IO_RANDOM)
+channel.read(1024, handler, offset=4096)  # Read from offset 4096
+channel.write(data, handler, offset=8192)  # Write at offset 8192
+```
+
 ### Workloops
 
 Priority-inversion-avoiding queues for priority-sensitive workloads.
@@ -579,6 +733,32 @@ Timer constructor parameters:
 
 Note: Work cannot be submitted to inactive workloops (raises RuntimeError).
 
+### IOChannel
+
+| Method | Description |
+|--------|-------------|
+| `IOChannel(fd, io_type=IO_STREAM, queue=None, cleanup_handler=None)` | Create I/O channel |
+| `read(length, handler, offset=0, queue=None)` | Async read |
+| `write(data, handler, offset=0, queue=None)` | Async write |
+| `close(stop=False)` | Close channel (stop=True cancels pending) |
+| `set_high_water(size)` | Max bytes per handler call |
+| `set_low_water(size)` | Min bytes before handler call |
+| `set_interval(interval_ns, flags=0)` | Delivery batching interval |
+| `barrier(handler)` | Execute after pending I/O completes |
+| `fd` | File descriptor (property) |
+| `is_closed` | Check if closed (property) |
+
+IOChannel constructor parameters:
+- `fd`: File descriptor (must remain open while channel is active)
+- `io_type`: `IO_STREAM` (sequential) or `IO_RANDOM` (random access with offsets)
+- `queue`: Queue for cleanup handler execution
+- `cleanup_handler`: Optional `callable(error: int)` called when channel fully closes
+
+IOChannel callbacks:
+- Read/write handlers receive `(done: bool, data: bytes, error: int)`
+- `done=True` indicates operation complete; handler won't be called again
+- Barrier handlers receive no arguments
+
 ### Functions
 
 | Function | Description |
@@ -614,8 +794,9 @@ Async I/O callbacks receive `(data, error)` where `error` is 0 on success.
 - `PROC_SIGNAL` - Process received a signal
 
 **I/O Types:**
-- `IO_STREAM` - Stream-based I/O
-- `IO_RANDOM` - Random access I/O
+- `IO_STREAM` - Stream-based I/O (sequential)
+- `IO_RANDOM` - Random access I/O (with offsets)
+- `IO_STOP` - Close flag to cancel pending operations
 
 ## Examples
 
@@ -637,6 +818,7 @@ See the `examples/` directory for complete examples:
 - `dispatch_data.py` - Buffer management with Data objects
 - `async_io.py` - Asynchronous file read/write
 - `workloop.py` - Priority-inversion-avoiding workloops
+- `io_channel.py` - High-performance I/O with chunking and flow control
 
 ## Notes
 
