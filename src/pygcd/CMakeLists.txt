@@ -9,14 +9,9 @@ python_add_library(_core MODULE _core.c WITH_SOABI)
 
 set_target_properties(_core PROPERTIES OUTPUT_NAME "_core")
 
-# target_link_libraries(_core
-#     PUBLIC
-#     tinn
-# )
-
-# target_include_directories(_core
-#     PUBLIC
-#     ${CMAKE_SOURCE_DIR}/thirdparty/tinn
-# )
+# Link against the dispatch framework (GCD) on macOS
+if(APPLE)
+    target_link_libraries(_core PRIVATE "-framework CoreFoundation")
+endif()
 
 install(TARGETS _core DESTINATION pygcd)

@@ -1,31 +1,579 @@
 # cython: language_level=3
 """
-pygcd Cython extension module.
+pygcd - Python wrapper for macOS Grand Central Dispatch (GCD).
 
-Provides fast implementations of add and greet functions.
+Provides Python bindings to Apple's GCD framework for concurrent programming.
 """
 
+from libc.stdint cimport uint64_t, int64_t, intptr_t, uintptr_t
+from cpython.ref cimport PyObject, Py_INCREF, Py_DECREF
+from cpython.exc cimport PyErr_Occurred, PyErr_Print
 
-cpdef int add(int a, int b):
-    """Add two integers.
+# Time constants
+DEF NSEC_PER_SEC = 1000000000
+DEF NSEC_PER_MSEC = 1000000
+DEF NSEC_PER_USEC = 1000
+DEF USEC_PER_SEC = 1000000
+DEF MSEC_PER_SEC = 1000
+
+# Export time constants to Python
+NSEC_PER_SEC_PY = NSEC_PER_SEC
+NSEC_PER_MSEC_PY = NSEC_PER_MSEC
+NSEC_PER_USEC_PY = NSEC_PER_USEC
+USEC_PER_SEC_PY = USEC_PER_SEC
+MSEC_PER_SEC_PY = MSEC_PER_SEC
+
+# Time special values (DISPATCH_TIME_FOREVER is ~0ULL = 0xFFFFFFFFFFFFFFFF)
+DEF _DISPATCH_TIME_NOW = 0
+DEF _DISPATCH_TIME_FOREVER = 0xFFFFFFFFFFFFFFFF
+
+DISPATCH_TIME_NOW = _DISPATCH_TIME_NOW
+DISPATCH_TIME_FOREVER = _DISPATCH_TIME_FOREVER
+
+# Queue priority constants
+DEF _DISPATCH_QUEUE_PRIORITY_HIGH = 2
+DEF _DISPATCH_QUEUE_PRIORITY_DEFAULT = 0
+DEF _DISPATCH_QUEUE_PRIORITY_LOW = -2
+DEF _DISPATCH_QUEUE_PRIORITY_BACKGROUND = -32768  # INT16_MIN
+
+QUEUE_PRIORITY_HIGH = _DISPATCH_QUEUE_PRIORITY_HIGH
+QUEUE_PRIORITY_DEFAULT = _DISPATCH_QUEUE_PRIORITY_DEFAULT
+QUEUE_PRIORITY_LOW = _DISPATCH_QUEUE_PRIORITY_LOW
+QUEUE_PRIORITY_BACKGROUND = _DISPATCH_QUEUE_PRIORITY_BACKGROUND
+
+# QOS class constants (from sys/qos.h)
+DEF _QOS_CLASS_USER_INTERACTIVE = 0x21
+DEF _QOS_CLASS_USER_INITIATED = 0x19
+DEF _QOS_CLASS_DEFAULT = 0x15
+DEF _QOS_CLASS_UTILITY = 0x11
+DEF _QOS_CLASS_BACKGROUND = 0x09
+DEF _QOS_CLASS_UNSPECIFIED = 0x00
+
+QOS_CLASS_USER_INTERACTIVE = _QOS_CLASS_USER_INTERACTIVE
+QOS_CLASS_USER_INITIATED = _QOS_CLASS_USER_INITIATED
+QOS_CLASS_DEFAULT = _QOS_CLASS_DEFAULT
+QOS_CLASS_UTILITY = _QOS_CLASS_UTILITY
+QOS_CLASS_BACKGROUND = _QOS_CLASS_BACKGROUND
+QOS_CLASS_UNSPECIFIED = _QOS_CLASS_UNSPECIFIED
+
+
+cdef extern from "dispatch/dispatch.h" nogil:
+    # Opaque types
+    ctypedef struct dispatch_queue_s:
+        pass
+    ctypedef dispatch_queue_s* dispatch_queue_t
+
+    ctypedef struct dispatch_group_s:
+        pass
+    ctypedef dispatch_group_s* dispatch_group_t
+
+    ctypedef struct dispatch_semaphore_s:
+        pass
+    ctypedef dispatch_semaphore_s* dispatch_semaphore_t
+
+    ctypedef struct dispatch_queue_attr_s:
+        pass
+    ctypedef dispatch_queue_attr_s* dispatch_queue_attr_t
+
+    # Time type
+    ctypedef uint64_t dispatch_time_t
+
+    # Function pointer type
+    ctypedef void (*dispatch_function_t)(void*)
+
+    # Once predicate
+    ctypedef intptr_t dispatch_once_t
+
+    # Queue attribute constants
+    dispatch_queue_attr_t _dispatch_queue_attr_concurrent "DISPATCH_GLOBAL_OBJECT(dispatch_queue_attr_t, _dispatch_queue_attr_concurrent)"
+
+    # Queue creation and management
+    dispatch_queue_t dispatch_queue_create(const char* label, dispatch_queue_attr_t attr)
+    dispatch_queue_t dispatch_get_global_queue(intptr_t identifier, uintptr_t flags)
+    const char* dispatch_queue_get_label(dispatch_queue_t queue)
+
+    # Reference counting
+    void dispatch_retain(dispatch_queue_t obj)
+    void dispatch_release(dispatch_queue_t obj)
+
+    # Async/sync execution with function pointers
+    void dispatch_async_f(dispatch_queue_t queue, void* context, dispatch_function_t work)
+    void dispatch_sync_f(dispatch_queue_t queue, void* context, dispatch_function_t work)
+
+    # Barrier operations
+    void dispatch_barrier_async_f(dispatch_queue_t queue, void* context, dispatch_function_t work)
+    void dispatch_barrier_sync_f(dispatch_queue_t queue, void* context, dispatch_function_t work)
+
+    # Apply (parallel for)
+    void dispatch_apply_f(size_t iterations, dispatch_queue_t queue,
+                          void* context, void (*work)(void*, size_t))
+
+    # After (delayed execution)
+    void dispatch_after_f(dispatch_time_t when, dispatch_queue_t queue,
+                          void* context, dispatch_function_t work)
+
+    # Groups
+    dispatch_group_t dispatch_group_create()
+    void dispatch_group_async_f(dispatch_group_t group, dispatch_queue_t queue,
+                                void* context, dispatch_function_t work)
+    intptr_t dispatch_group_wait(dispatch_group_t group, dispatch_time_t timeout)
+    void dispatch_group_notify_f(dispatch_group_t group, dispatch_queue_t queue,
+                                 void* context, dispatch_function_t work)
+    void dispatch_group_enter(dispatch_group_t group)
+    void dispatch_group_leave(dispatch_group_t group)
+
+    # Semaphores
+    dispatch_semaphore_t dispatch_semaphore_create(intptr_t value)
+    intptr_t dispatch_semaphore_wait(dispatch_semaphore_t dsema, dispatch_time_t timeout)
+    intptr_t dispatch_semaphore_signal(dispatch_semaphore_t dsema)
+
+    # Once
+    void dispatch_once_f(dispatch_once_t* predicate, void* context, dispatch_function_t function)
+
+    # Time functions
+    dispatch_time_t dispatch_time(dispatch_time_t when, int64_t delta)
+
+
+# Trampoline function that acquires GIL and calls Python callable
+cdef void _python_callback(void* context) noexcept with gil:
+    """Trampoline function to call Python callables from GCD."""
+    cdef object func
+    if context == NULL:
+        return
+    func = <object>context
+    try:
+        func()
+    except BaseException:
+        PyErr_Print()
+    finally:
+        Py_DECREF(func)
+
+
+# Trampoline for dispatch_apply with iteration index
+cdef void _python_apply_callback(void* context, size_t iteration) noexcept with gil:
+    """Trampoline function for dispatch_apply that passes iteration index."""
+    cdef object func
+    if context == NULL:
+        return
+    func = <object>context
+    try:
+        func(iteration)
+    except BaseException:
+        PyErr_Print()
+
+
+cdef class Queue:
+    """
+    Dispatch queue wrapper.
+
+    Queues can be serial (execute one task at a time in FIFO order) or
+    concurrent (execute multiple tasks simultaneously).
+    """
+    cdef dispatch_queue_t _queue
+    cdef bint _owned
+    cdef bytes _label_bytes
+
+    def __cinit__(self):
+        self._queue = NULL
+        self._owned = False
+
+    def __init__(self, str label=None, bint concurrent=False):
+        """
+        Create a new dispatch queue.
+
+        Args:
+            label: Optional string label for debugging.
+            concurrent: If True, create a concurrent queue. Default is serial.
+        """
+        cdef dispatch_queue_attr_t attr
+        cdef const char* c_label = NULL
+
+        if label is not None:
+            self._label_bytes = label.encode('utf-8')
+            c_label = self._label_bytes
+
+        if concurrent:
+            attr = _dispatch_queue_attr_concurrent
+        else:
+            attr = NULL  # DISPATCH_QUEUE_SERIAL
+
+        with nogil:
+            self._queue = dispatch_queue_create(c_label, attr)
+        self._owned = True
+
+    def __dealloc__(self):
+        if self._queue != NULL and self._owned:
+            dispatch_release(self._queue)
+            self._queue = NULL
+
+    @staticmethod
+    def global_queue(int priority=_DISPATCH_QUEUE_PRIORITY_DEFAULT):
+        """
+        Get a global concurrent queue with the specified priority.
+
+        Args:
+            priority: Queue priority (QUEUE_PRIORITY_* or QOS_CLASS_* constants).
+
+        Returns:
+            A Queue instance wrapping the global queue.
+        """
+        cdef Queue q = Queue.__new__(Queue)
+        with nogil:
+            q._queue = dispatch_get_global_queue(priority, 0)
+        q._owned = False  # Global queues are not owned
+        return q
+
+    @property
+    def label(self):
+        """Get the queue's label."""
+        cdef const char* c_label
+        with nogil:
+            c_label = dispatch_queue_get_label(self._queue)
+        if c_label == NULL:
+            return None
+        return c_label.decode('utf-8')
+
+    def run_async(self, func):
+        """
+        Submit a callable for asynchronous execution.
+
+        The callable will be executed on this queue at some point in the future.
+        This method returns immediately.
+
+        Args:
+            func: A callable taking no arguments.
+        """
+        if not callable(func):
+            raise TypeError("func must be callable")
+        Py_INCREF(func)
+        cdef PyObject* ctx = <PyObject*>func
+        with nogil:
+            dispatch_async_f(self._queue, <void*>ctx, _python_callback)
+
+    def run_sync(self, func):
+        """
+        Submit a callable for synchronous execution.
+
+        This method blocks until the callable has completed execution.
+
+        Warning: Do not call run_sync() on a serial queue from within a task
+        already running on that queue - this will deadlock.
+
+        Args:
+            func: A callable taking no arguments.
+        """
+        if not callable(func):
+            raise TypeError("func must be callable")
+        Py_INCREF(func)
+        cdef PyObject* ctx = <PyObject*>func
+        with nogil:
+            dispatch_sync_f(self._queue, <void*>ctx, _python_callback)
+
+    def barrier_async(self, func):
+        """
+        Submit a barrier callable for asynchronous execution.
+
+        On a concurrent queue, barrier tasks wait for all previously submitted
+        tasks to complete, then execute exclusively (no other tasks run
+        concurrently), then allow subsequent tasks to proceed.
+
+        On a serial queue, this behaves identically to async_().
+
+        Args:
+            func: A callable taking no arguments.
+        """
+        if not callable(func):
+            raise TypeError("func must be callable")
+        Py_INCREF(func)
+        cdef PyObject* ctx = <PyObject*>func
+        with nogil:
+            dispatch_barrier_async_f(self._queue, <void*>ctx, _python_callback)
+
+    def barrier_sync(self, func):
+        """
+        Submit a barrier callable for synchronous execution.
+
+        Combines the semantics of barrier_async() and sync().
+
+        Args:
+            func: A callable taking no arguments.
+        """
+        if not callable(func):
+            raise TypeError("func must be callable")
+        Py_INCREF(func)
+        cdef PyObject* ctx = <PyObject*>func
+        with nogil:
+            dispatch_barrier_sync_f(self._queue, <void*>ctx, _python_callback)
+
+    def after(self, double delay_seconds, func):
+        """
+        Schedule a callable for execution after a delay.
+
+        Args:
+            delay_seconds: Delay in seconds before execution.
+            func: A callable taking no arguments.
+        """
+        if not callable(func):
+            raise TypeError("func must be callable")
+        cdef int64_t delta_ns = <int64_t>(delay_seconds * NSEC_PER_SEC)
+        cdef dispatch_time_t when
+        with nogil:
+            when = dispatch_time(_DISPATCH_TIME_NOW, delta_ns)
+        Py_INCREF(func)
+        cdef PyObject* ctx = <PyObject*>func
+        with nogil:
+            dispatch_after_f(when, self._queue, <void*>ctx, _python_callback)
+
+
+def apply(size_t iterations, func, Queue queue=None):
+    """
+    Execute a callable multiple times in parallel.
+
+    The callable is invoked `iterations` times, potentially concurrently.
+    Each invocation receives its iteration index (0 to iterations-1).
+    This function blocks until all iterations complete.
 
     Args:
-        a: First integer.
-        b: Second integer.
-
-    Returns:
-        Sum of a and b.
+        iterations: Number of times to invoke the callable.
+        func: A callable taking one argument (the iteration index).
+        queue: Optional queue to use. If None, uses an appropriate global queue.
     """
-    return a + b
+    if not callable(func):
+        raise TypeError("func must be callable")
+
+    cdef dispatch_queue_t q
+    if queue is not None:
+        q = queue._queue
+    else:
+        q = NULL  # DISPATCH_APPLY_AUTO
+
+    # For apply, we don't need to manage reference counting per-iteration
+    # because dispatch_apply_f is synchronous
+    cdef PyObject* ctx = <PyObject*>func
+    with nogil:
+        dispatch_apply_f(iterations, q, <void*>ctx, _python_apply_callback)
 
 
-cpdef str greet(str name):
-    """Return a greeting string.
+cdef class Group:
+    """
+    Dispatch group for tracking completion of multiple tasks.
+
+    Groups allow you to aggregate multiple tasks and wait for all of them
+    to complete, or be notified when they complete.
+    """
+    cdef dispatch_group_t _group
+
+    def __cinit__(self):
+        self._group = NULL
+
+    def __init__(self):
+        """Create a new dispatch group."""
+        with nogil:
+            self._group = dispatch_group_create()
+
+    def __dealloc__(self):
+        if self._group != NULL:
+            dispatch_release(<dispatch_queue_t>self._group)
+            self._group = NULL
+
+    def run_async(self, Queue queue, func):
+        """
+        Submit a callable to a queue and associate it with this group.
+
+        Args:
+            queue: The queue to submit to.
+            func: A callable taking no arguments.
+        """
+        if not callable(func):
+            raise TypeError("func must be callable")
+        Py_INCREF(func)
+        cdef PyObject* ctx = <PyObject*>func
+        cdef dispatch_queue_t q = queue._queue
+        cdef dispatch_group_t g = self._group
+        with nogil:
+            dispatch_group_async_f(g, q, <void*>ctx, _python_callback)
+
+    def wait(self, double timeout_seconds=-1.0):
+        """
+        Wait for all tasks in the group to complete.
+
+        Args:
+            timeout_seconds: Maximum time to wait. Use -1 for infinite wait.
+
+        Returns:
+            True if all tasks completed, False if timeout occurred.
+        """
+        cdef dispatch_time_t timeout
+        cdef intptr_t result
+        cdef int64_t delta_ns
+
+        if timeout_seconds < 0:
+            timeout = _DISPATCH_TIME_FOREVER
+        else:
+            delta_ns = <int64_t>(timeout_seconds * NSEC_PER_SEC)
+            with nogil:
+                timeout = dispatch_time(_DISPATCH_TIME_NOW, delta_ns)
+
+        cdef dispatch_group_t g = self._group
+        with nogil:
+            result = dispatch_group_wait(g, timeout)
+        return result == 0
+
+    def notify(self, Queue queue, func):
+        """
+        Schedule a callable to run when all current tasks in the group complete.
+
+        Args:
+            queue: The queue to submit the notification callable to.
+            func: A callable taking no arguments.
+        """
+        if not callable(func):
+            raise TypeError("func must be callable")
+        Py_INCREF(func)
+        cdef PyObject* ctx = <PyObject*>func
+        cdef dispatch_queue_t q = queue._queue
+        cdef dispatch_group_t g = self._group
+        with nogil:
+            dispatch_group_notify_f(g, q, <void*>ctx, _python_callback)
+
+    def enter(self):
+        """
+        Manually increment the group's task count.
+
+        Must be balanced with a call to leave().
+        """
+        cdef dispatch_group_t g = self._group
+        with nogil:
+            dispatch_group_enter(g)
+
+    def leave(self):
+        """
+        Manually decrement the group's task count.
+
+        Must balance a previous call to enter().
+        """
+        cdef dispatch_group_t g = self._group
+        with nogil:
+            dispatch_group_leave(g)
+
+
+cdef class Semaphore:
+    """
+    Counting semaphore for controlling access to resources.
+
+    A semaphore with initial value N allows N concurrent accesses.
+    """
+    cdef dispatch_semaphore_t _semaphore
+
+    def __cinit__(self):
+        self._semaphore = NULL
+
+    def __init__(self, intptr_t value=0):
+        """
+        Create a new semaphore.
+
+        Args:
+            value: Initial value. Use 0 for signaling, >0 for resource counting.
+        """
+        with nogil:
+            self._semaphore = dispatch_semaphore_create(value)
+
+    def __dealloc__(self):
+        if self._semaphore != NULL:
+            dispatch_release(<dispatch_queue_t>self._semaphore)
+            self._semaphore = NULL
+
+    def wait(self, double timeout_seconds=-1.0):
+        """
+        Decrement the semaphore, blocking if necessary.
+
+        If the semaphore value is greater than zero, decrements it and returns
+        immediately. Otherwise, blocks until another thread signals.
+
+        Args:
+            timeout_seconds: Maximum time to wait. Use -1 for infinite wait.
+
+        Returns:
+            True if the semaphore was successfully decremented,
+            False if timeout occurred.
+        """
+        cdef dispatch_time_t timeout
+        cdef intptr_t result
+        cdef int64_t delta_ns
+
+        if timeout_seconds < 0:
+            timeout = _DISPATCH_TIME_FOREVER
+        else:
+            delta_ns = <int64_t>(timeout_seconds * NSEC_PER_SEC)
+            with nogil:
+                timeout = dispatch_time(_DISPATCH_TIME_NOW, delta_ns)
+
+        cdef dispatch_semaphore_t s = self._semaphore
+        with nogil:
+            result = dispatch_semaphore_wait(s, timeout)
+        return result == 0
+
+    def signal(self):
+        """
+        Increment the semaphore, potentially waking a waiting thread.
+
+        Returns:
+            True if a thread was woken, False otherwise.
+        """
+        cdef intptr_t result
+        cdef dispatch_semaphore_t s = self._semaphore
+        with nogil:
+            result = dispatch_semaphore_signal(s)
+        return result != 0
+
+
+cdef class Once:
+    """
+    Execute a callable exactly once, thread-safely.
+
+    Multiple threads can call the once instance simultaneously;
+    only one will execute the callable, and all will wait for completion.
+    """
+    cdef dispatch_once_t _predicate
+
+    def __cinit__(self):
+        self._predicate = 0
+
+    def __call__(self, func):
+        """
+        Execute the callable if not already executed.
+
+        Args:
+            func: A callable taking no arguments. Will only be called once.
+        """
+        if not callable(func):
+            raise TypeError("func must be callable")
+
+        # For once, we need special handling because the function should only
+        # be called once, but we always increment the reference
+        # We'll use a simple check - if predicate is already set, don't call
+        if self._predicate != 0:
+            return
+
+        Py_INCREF(func)
+        cdef PyObject* ctx = <PyObject*>func
+        cdef dispatch_once_t* pred = &self._predicate
+        with nogil:
+            dispatch_once_f(pred, <void*>ctx, _python_callback)
+
+
+def time_from_now(double seconds):
+    """
+    Create a dispatch time relative to now.
 
     Args:
-        name: Name to greet.
+        seconds: Number of seconds from now.
 
     Returns:
-        Greeting string.
+        A dispatch time value.
     """
-    return f"Hello, {name}!"
+    cdef int64_t delta_ns = <int64_t>(seconds * NSEC_PER_SEC)
+    cdef dispatch_time_t result
+    with nogil:
+        result = dispatch_time(_DISPATCH_TIME_NOW, delta_ns)
+    return result

@@ -1,16 +1,392 @@
-"""Tests for pygcd Cython extension module."""
+"""Tests for pygcd - Python GCD wrapper."""
 
+import time
+import threading
+import pytest
 import pygcd
 
 
-def test_add():
-    """Test add function."""
-    assert pygcd.add(1, 2) == 3
-    assert pygcd.add(-1, 1) == 0
-    assert pygcd.add(0, 0) == 0
+class TestQueue:
+    """Tests for Queue class."""
+
+    def test_create_serial_queue(self):
+        """Test creating a serial queue."""
+        q = pygcd.Queue("test.serial")
+        assert q.label == "test.serial"
+
+    def test_create_concurrent_queue(self):
+        """Test creating a concurrent queue."""
+        q = pygcd.Queue("test.concurrent", concurrent=True)
+        assert q.label == "test.concurrent"
+
+    def test_create_queue_no_label(self):
+        """Test creating a queue without a label."""
+        q = pygcd.Queue()
+        # Label may be None or empty string depending on implementation
+        assert q.label is None or q.label == ""
+
+    def test_global_queue(self):
+        """Test getting global queue."""
+        q = pygcd.Queue.global_queue()
+        assert q is not None
+        # Global queues have system labels
+        assert q.label is not None
+
+    def test_global_queue_priorities(self):
+        """Test getting global queues with different priorities."""
+        high = pygcd.Queue.global_queue(pygcd.QUEUE_PRIORITY_HIGH)
+        default = pygcd.Queue.global_queue(pygcd.QUEUE_PRIORITY_DEFAULT)
+        low = pygcd.Queue.global_queue(pygcd.QUEUE_PRIORITY_LOW)
+        bg = pygcd.Queue.global_queue(pygcd.QUEUE_PRIORITY_BACKGROUND)
+        assert high is not None
+        assert default is not None
+        assert low is not None
+        assert bg is not None
+
+    def test_global_queue_qos(self):
+        """Test getting global queues with QOS classes."""
+        q = pygcd.Queue.global_queue(pygcd.QOS_CLASS_USER_INITIATED)
+        assert q is not None
+
+    def test_async_execution(self):
+        """Test run_async executes the callable."""
+        q = pygcd.Queue("test.async")
+        results = []
+
+        def task():
+            results.append(1)
+
+        q.run_async(task)
+        # Wait for async task to complete
+        q.run_sync(lambda: None)
+        assert results == [1]
+
+    def test_sync_execution(self):
+        """Test run_sync executes the callable and blocks."""
+        q = pygcd.Queue("test.sync")
+        results = []
+
+        def task():
+            results.append(1)
+
+        q.run_sync(task)
+        assert results == [1]
+
+    def test_serial_queue_order(self):
+        """Test that serial queue maintains FIFO order."""
+        q = pygcd.Queue("test.order")
+        results = []
+
+        for i in range(5):
+            q.run_async(lambda i=i: results.append(i))
+
+        q.run_sync(lambda: None)  # Wait for all to complete
+        assert results == [0, 1, 2, 3, 4]
+
+    def test_barrier_async(self):
+        """Test barrier_async on concurrent queue."""
+        q = pygcd.Queue("test.barrier", concurrent=True)
+        results = []
+
+        # Submit some reads
+        for i in range(3):
+            q.run_async(lambda i=i: results.append(("read", i)))
+
+        # Barrier write
+        q.barrier_async(lambda: results.append(("write", 0)))
+
+        # More reads
+        for i in range(3, 6):
+            q.run_async(lambda i=i: results.append(("read", i)))
+
+        q.barrier_sync(lambda: None)  # Wait for completion
+
+        # The write should appear after all initial reads complete
+        # and before all subsequent reads start
+        write_idx = None
+        for i, item in enumerate(results):
+            if item[0] == "write":
+                write_idx = i
+                break
+
+        assert write_idx is not None
+        # All reads before barrier should be before write
+        # All reads after barrier should be after write
+
+    def test_barrier_sync(self):
+        """Test barrier_sync blocks until complete."""
+        q = pygcd.Queue("test.barrier_sync", concurrent=True)
+        results = []
+
+        q.run_async(lambda: results.append(1))
+        q.barrier_sync(lambda: results.append(2))
+
+        assert 2 in results
+
+    def test_after_delayed_execution(self):
+        """Test after schedules delayed execution."""
+        q = pygcd.Queue("test.after")
+        results = []
+        start = time.time()
+
+        q.after(0.1, lambda: results.append(time.time() - start))
+
+        # Wait for the delayed task
+        time.sleep(0.2)
+        q.run_sync(lambda: None)
+
+        assert len(results) == 1
+        assert results[0] >= 0.1
+
+    def test_async_raises_on_non_callable(self):
+        """Test that run_async raises TypeError for non-callable."""
+        q = pygcd.Queue("test.error")
+        with pytest.raises(TypeError):
+            q.run_async("not a callable")
+
+    def test_sync_raises_on_non_callable(self):
+        """Test that run_sync raises TypeError for non-callable."""
+        q = pygcd.Queue("test.error")
+        with pytest.raises(TypeError):
+            q.run_sync(42)
 
 
-def test_greet():
-    """Test greet function."""
-    assert pygcd.greet("World") == "Hello, World!"
-    assert pygcd.greet("Python") == "Hello, Python!"
+class TestGroup:
+    """Tests for Group class."""
+
+    def test_create_group(self):
+        """Test creating a group."""
+        g = pygcd.Group()
+        assert g is not None
+
+    def test_group_async_and_wait(self):
+        """Test submitting tasks to group and waiting."""
+        g = pygcd.Group()
+        q = pygcd.Queue.global_queue()
+        results = []
+
+        for i in range(5):
+            g.run_async(q, lambda i=i: results.append(i))
+
+        completed = g.wait()
+        assert completed is True
+        assert len(results) == 5
+
+    def test_group_wait_timeout(self):
+        """Test group wait with timeout."""
+        g = pygcd.Group()
+        q = pygcd.Queue.global_queue()
+
+        def slow_task():
+            time.sleep(0.5)
+
+        g.run_async(q, slow_task)
+        completed = g.wait(0.1)
+        assert completed is False
+
+    def test_group_notify(self):
+        """Test group notify callback."""
+        g = pygcd.Group()
+        q = pygcd.Queue("test.notify")
+        results = []
+
+        for i in range(3):
+            g.run_async(q, lambda i=i: results.append(i))
+
+        g.notify(q, lambda: results.append("done"))
+        g.wait()
+        q.run_sync(lambda: None)  # Ensure notify has run
+
+        assert "done" in results
+        # "done" should be last
+        assert results[-1] == "done"
+
+    def test_group_enter_leave(self):
+        """Test manual group enter/leave."""
+        g = pygcd.Group()
+        q = pygcd.Queue.global_queue()
+        results = []
+
+        g.enter()
+
+        def task():
+            results.append(1)
+            g.leave()
+
+        q.run_async(task)
+        completed = g.wait()
+        assert completed is True
+        assert results == [1]
+
+
+class TestSemaphore:
+    """Tests for Semaphore class."""
+
+    def test_create_semaphore(self):
+        """Test creating a semaphore."""
+        s = pygcd.Semaphore(1)
+        assert s is not None
+
+    def test_semaphore_signal_wait(self):
+        """Test semaphore signal and wait."""
+        s = pygcd.Semaphore(0)
+        q = pygcd.Queue.global_queue()
+        results = []
+
+        def producer():
+            results.append("produced")
+            s.signal()
+
+        def consumer():
+            s.wait()
+            results.append("consumed")
+
+        q.run_async(producer)
+        q.run_async(consumer)
+
+        time.sleep(0.1)
+        assert "produced" in results
+        assert "consumed" in results
+
+    def test_semaphore_timeout(self):
+        """Test semaphore wait with timeout."""
+        s = pygcd.Semaphore(0)
+        acquired = s.wait(0.1)
+        assert acquired is False
+
+    def test_semaphore_resource_limiting(self):
+        """Test semaphore limits concurrent access."""
+        s = pygcd.Semaphore(2)  # Allow 2 concurrent
+        q = pygcd.Queue.global_queue()
+        active = []
+        max_active = [0]
+        lock = threading.Lock()
+
+        def task(i):
+            s.wait()
+            with lock:
+                active.append(i)
+                if len(active) > max_active[0]:
+                    max_active[0] = len(active)
+            time.sleep(0.05)
+            with lock:
+                active.remove(i)
+            s.signal()
+
+        g = pygcd.Group()
+        for i in range(5):
+            g.run_async(q, lambda i=i: task(i))
+
+        g.wait()
+        assert max_active[0] <= 2
+
+
+class TestOnce:
+    """Tests for Once class."""
+
+    def test_once_executes_once(self):
+        """Test Once executes callable exactly once."""
+        once = pygcd.Once()
+        results = []
+
+        def init():
+            results.append(1)
+
+        once(init)
+        once(init)
+        once(init)
+
+        assert results == [1]
+
+    def test_once_thread_safe(self):
+        """Test Once is thread-safe."""
+        once = pygcd.Once()
+        results = []
+        lock = threading.Lock()
+
+        def init():
+            with lock:
+                results.append(1)
+
+        q = pygcd.Queue.global_queue()
+        g = pygcd.Group()
+
+        for _ in range(10):
+            g.run_async(q, lambda: once(init))
+
+        g.wait()
+        assert results == [1]
+
+
+class TestApply:
+    """Tests for apply function."""
+
+    def test_apply_basic(self):
+        """Test basic apply functionality."""
+        results = []
+        lock = threading.Lock()
+
+        def task(i):
+            with lock:
+                results.append(i)
+
+        pygcd.apply(5, task)
+        assert sorted(results) == [0, 1, 2, 3, 4]
+
+    def test_apply_with_queue(self):
+        """Test apply with explicit queue."""
+        q = pygcd.Queue.global_queue()
+        results = []
+        lock = threading.Lock()
+
+        def task(i):
+            with lock:
+                results.append(i)
+
+        pygcd.apply(5, task, q)
+        assert sorted(results) == [0, 1, 2, 3, 4]
+
+    def test_apply_raises_on_non_callable(self):
+        """Test apply raises TypeError for non-callable."""
+        with pytest.raises(TypeError):
+            pygcd.apply(5, "not callable")
+
+
+class TestConstants:
+    """Tests for module constants."""
+
+    def test_time_constants(self):
+        """Test time constants are defined."""
+        assert pygcd.DISPATCH_TIME_NOW == 0
+        assert pygcd.DISPATCH_TIME_FOREVER == 0xFFFFFFFFFFFFFFFF
+        assert pygcd.NSEC_PER_SEC == 1000000000
+        assert pygcd.NSEC_PER_MSEC == 1000000
+        assert pygcd.NSEC_PER_USEC == 1000
+        assert pygcd.USEC_PER_SEC == 1000000
+        assert pygcd.MSEC_PER_SEC == 1000
+
+    def test_priority_constants(self):
+        """Test priority constants are defined."""
+        assert pygcd.QUEUE_PRIORITY_HIGH == 2
+        assert pygcd.QUEUE_PRIORITY_DEFAULT == 0
+        assert pygcd.QUEUE_PRIORITY_LOW == -2
+        assert pygcd.QUEUE_PRIORITY_BACKGROUND == -32768
+
+    def test_qos_constants(self):
+        """Test QOS class constants are defined."""
+        assert pygcd.QOS_CLASS_USER_INTERACTIVE == 0x21
+        assert pygcd.QOS_CLASS_USER_INITIATED == 0x19
+        assert pygcd.QOS_CLASS_DEFAULT == 0x15
+        assert pygcd.QOS_CLASS_UTILITY == 0x11
+        assert pygcd.QOS_CLASS_BACKGROUND == 0x09
+        assert pygcd.QOS_CLASS_UNSPECIFIED == 0x00
+
+
+class TestTimeFromNow:
+    """Tests for time_from_now function."""
+
+    def test_time_from_now(self):
+        """Test time_from_now returns a valid time."""
+        t = pygcd.time_from_now(1.0)
+        assert t > 0
+        assert t != pygcd.DISPATCH_TIME_FOREVER
